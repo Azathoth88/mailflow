@@ -2362,7 +2362,12 @@
     "signedInGoogle": "Zalogowano przez Google jako {{email}}",
     "signedInNote": "Serwer pochodzi z tego logowania. Jeśli konto przestanie się łączyć, zaloguj się ponownie.",
     "mailboxLabel": "Skrzynka do otwarcia",
-    "mailboxHelp": "W przypadku skrzynki udostępnionej lub delegowanej wpisz jej adres. Dla własnej skrzynki zostaw bez zmian."
+    "mailboxHelp": "W przypadku skrzynki udostępnionej lub delegowanej wpisz jej adres. Dla własnej skrzynki zostaw bez zmian.",
+    "autoconfigSearching": "Wyszukiwanie ustawień serwera dla {{domain}}…",
+    "autoconfigFoundDomain": "Uzupełniono ustawienia serwera {{provider}} opublikowane przez {{domain}}. Sprawdź je przed zapisaniem.",
+    "autoconfigFoundIspdb": "Uzupełniono ustawienia serwera {{provider}} z publicznej bazy danych Thunderbirda. Sprawdź je przed zapisaniem.",
+    "autoconfigFoundMx": "Poczta domeny {{domain}} jest hostowana przez {{provider}}; ustawienia serwera zostały uzupełnione.",
+    "autoconfigNone": "Nie znaleziono ustawień serwera dla {{domain}}. Wpisz je poniżej."
   },
   "googleSignIn": {
     "title": "Zaloguj się przez Google",

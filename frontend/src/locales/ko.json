@@ -2343,7 +2343,12 @@
     "signedInGoogle": "Google로 {{email}} 계정에 로그인됨",
     "signedInNote": "서버 정보는 이 로그인에서 가져옵니다. 계정이 연결되지 않으면 다시 로그인하세요.",
     "mailboxLabel": "열 사서함",
-    "mailboxHelp": "공유 또는 위임된 사서함이면 해당 주소를 입력하세요. 본인 사서함이면 그대로 두세요."
+    "mailboxHelp": "공유 또는 위임된 사서함이면 해당 주소를 입력하세요. 본인 사서함이면 그대로 두세요.",
+    "autoconfigSearching": "{{domain}}의 서버 설정을 찾는 중…",
+    "autoconfigFoundDomain": "{{domain}}에서 게시한 {{provider}} 서버 설정을 입력했습니다. 저장하기 전에 확인하세요.",
+    "autoconfigFoundIspdb": "Thunderbird 공개 데이터베이스에서 {{provider}} 서버 설정을 입력했습니다. 저장하기 전에 확인하세요.",
+    "autoconfigFoundMx": "{{domain}}의 메일은 {{provider}}에서 호스팅됩니다. 서버 설정을 입력했습니다.",
+    "autoconfigNone": "{{domain}}의 서버 설정을 찾지 못했습니다. 아래에 직접 입력하세요."
   },
   "googleSignIn": {
     "title": "Google로 로그인",
