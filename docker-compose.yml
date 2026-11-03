@@ -75,6 +75,16 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      # A single sign-on provider set up from the environment (see .env.example).
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_NAME: ${OIDC_NAME:-}
+      OIDC_SLUG: ${OIDC_SLUG:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-}
+      OIDC_PROVISIONING_MODE: ${OIDC_PROVISIONING_MODE:-}
+      OIDC_ADMIN_GROUP_CLAIM: ${OIDC_ADMIN_GROUP_CLAIM:-}
+      OIDC_ADMIN_GROUP_VALUE: ${OIDC_ADMIN_GROUP_VALUE:-}
       # The image proxy's cache of fitted images: per user, at most this many MB, kept for a month.
       IMAGE_CACHE_DIR: /var/cache/mailflow/images
       IMAGE_CACHE_MAX_MB: ${IMAGE_CACHE_MAX_MB:-512}
