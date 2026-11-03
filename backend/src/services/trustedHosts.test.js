@@ -18,10 +18,12 @@ beforeEach(() => {
   dns.resolve4.mockResolvedValue([]);
   dns.resolve6.mockResolvedValue([]);
   delete process.env.TRUSTED_PRIVATE_HOSTS;
+  delete process.env.OIDC_ISSUER_URL;
 });
 
 afterEach(() => {
   delete process.env.TRUSTED_PRIVATE_HOSTS;
+  delete process.env.OIDC_ISSUER_URL;
 });
 
 describe('isTrustedPrivateHost', () => {
@@ -41,6 +43,14 @@ describe('isTrustedPrivateHost', () => {
     expect(isTrustedPrivateHost('evil.sso.example.com')).toBe(false);
     expect(isTrustedPrivateHost('example.com')).toBe(false);
     expect(isTrustedPrivateHost('10.0.0.6')).toBe(false);
+  });
+
+  it('trusts the host of the issuer the environment configures, and only that host', () => {
+    process.env.OIDC_ISSUER_URL = 'https://SSO.example.com:8443/application/o/mailflow/';
+    expect(isTrustedPrivateHost('sso.example.com')).toBe(true);
+    expect(isTrustedPrivateHost('example.com')).toBe(false);
+    process.env.OIDC_ISSUER_URL = 'not a url';
+    expect(isTrustedPrivateHost('not a url')).toBe(false);
   });
 
   it('matches a bracketed IPv6 literal against its bare form', () => {

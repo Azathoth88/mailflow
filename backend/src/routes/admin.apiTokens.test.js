@@ -140,8 +140,8 @@ describe('sign-in policy changes and API tokens', () => {
     // An enabled provider, and an identity at it for the admin, so password sign-in can go off.
     query.mockImplementation(async sql => {
       if (sql.includes('COUNT(*)')) return { rows: [{ count: '1' }] };
-      if (sql.startsWith('SELECT allow_insecure, issuer_url, client_id FROM oidc_providers')) {
-        return { rows: [{ allow_insecure: false, issuer_url: 'https://idp.example.com', client_id: 'mailflow' }] };
+      if (sql.startsWith('SELECT slug, allow_insecure, issuer_url, client_id FROM oidc_providers')) {
+        return { rows: [{ slug: 'corp', allow_insecure: false, issuer_url: 'https://idp.example.com', client_id: 'mailflow' }] };
       }
       if (sql.includes("key = 'internal_auth_disabled'")) return { rows: [{ value: 'false' }] };
       return { rows: [{ username: 'maria' }] };

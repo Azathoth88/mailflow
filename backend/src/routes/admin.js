@@ -6,6 +6,7 @@ import { requireAdmin } from '../middleware/auth.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost, resolveForConnection } from '../services/hostValidation.js';
+import { envOidcConflict, envOidcSlug } from '../services/envOidcProvider.js';
 import { createSmtpTransport } from '../services/smtpTransport.js';
 import { getConnectionPolicy, invalidateConnectionPolicyCache } from '../services/connectionPolicy.js';
 import {
@@ -769,6 +770,16 @@ function validateMatchClaim(v) {
   return c;
 }
 
+// managed_by_env marks the provider OIDC_* in the environment sets up, whose fields from there
+// Settings cannot change.
+function withEnvFlag(provider) {
+  return { ...provider, managed_by_env: provider.slug === envOidcSlug() };
+}
+
+function envOidcRefusal(res, message) {
+  return res.status(409).json({ error: `This provider is set up by environment variables. ${message}` });
+}
+
 router.get('/oidc', async (req, res) => {
   const result = await query(
     `SELECT id, name, slug, issuer_url, client_id, scopes, provisioning_mode,
@@ -777,7 +788,7 @@ router.get('/oidc', async (req, res) => {
             created_at, updated_at
      FROM oidc_providers ORDER BY name ASC`
   );
-  res.json({ providers: result.rows });
+  res.json({ providers: result.rows.map(withEnvFlag) });
 });
 
 router.post('/oidc', async (req, res) => {
@@ -857,9 +868,11 @@ router.patch('/oidc/:id', async (req, res) => {
   const { id } = req.params;
   const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim } = req.body;
 
-  const existingResult = await query('SELECT allow_insecure, issuer_url, client_id FROM oidc_providers WHERE id = $1', [id]);
+  const existingResult = await query('SELECT slug, allow_insecure, issuer_url, client_id FROM oidc_providers WHERE id = $1', [id]);
   if (!existingResult.rows.length) return res.status(404).json({ error: 'Provider not found' });
   const existing = existingResult.rows[0];
+  const envConflict = envOidcConflict(existing, req.body);
+  if (envConflict) return envOidcRefusal(res, `Change ${envConflict.variable} there instead.`);
 
   // null = keep existing (column is NOT NULL, so we COALESCE rather than allow a blank reset).
   let loginMatchClaimParam = null;
@@ -954,7 +967,7 @@ router.patch('/oidc/:id', async (req, res) => {
     });
     if (!result.rows.length) return res.status(404).json({ error: 'Provider not found' });
     if (revoked) console.log(`[admin] ${req.session.username} ${enabled === false ? 'turned off' : 'changed the issuer or client of'} SSO provider ${result.rows[0].slug}${revokedTokensNote(revoked)}`);
-    res.json({ provider: result.rows[0] });
+    res.json({ provider: withEnvFlag(result.rows[0]) });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'A provider with this slug already exists' });
     throw err;
@@ -962,6 +975,10 @@ router.patch('/oidc/:id', async (req, res) => {
 });
 
 router.delete('/oidc/:id', async (req, res) => {
+  const { rows: [target] } = await query('SELECT slug FROM oidc_providers WHERE id = $1', [req.params.id]);
+  if (target && target.slug === envOidcSlug()) {
+    return envOidcRefusal(res, 'Remove the OIDC_* variables first, or the next start creates it again.');
+  }
   const lockout = await wouldLockOut(req.params.id);
   if (lockout) return res.status(400).json({ error: lockout });
   await query('DELETE FROM oidc_providers WHERE id = $1', [req.params.id]);
