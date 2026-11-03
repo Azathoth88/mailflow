@@ -5,6 +5,7 @@ import {
   MASKED_API_KEY,
   createAiProvider,
   normalizeAiConfig,
+  readEnvAiConfig,
 } from './aiProvider.js';
 
 const encoder = new TextEncoder();
@@ -70,6 +71,7 @@ function factory({ initial, ...overrides } = {}) {
     getCodexStatusFn: vi.fn().mockResolvedValue({ connected: true, state: 'connected' }),
     streamCodexResponsesFn: vi.fn(),
     completeCodexTextFn: vi.fn().mockResolvedValue('codex text'),
+    env: {},
     ...overrides,
   };
   return { provider: createAiProvider(deps), settings, deps };
@@ -118,6 +120,83 @@ describe('normalizeAiConfig', () => {
       chatgptConfig: { model: 'gpt-5.4' },
       features: { compose: true, summarize: true },
     });
+  });
+});
+
+describe('AI provider from the environment', () => {
+  const ENV = { AI_API_BASE_URL: 'http://vllm:8000/v1/', AI_API_KEY: 'env-secret', AI_API_MODEL: 'default' };
+  const completion = () => vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+
+  it('describes nothing when no AI_API_* variable is set', () => {
+    expect(readEnvAiConfig({})).toBeNull();
+    expect(readEnvAiConfig({ AI_API_BASE_URL: ' ', AI_API_MODEL: '' })).toBeNull();
+  });
+
+  it.each([
+    [{ AI_API_BASE_URL: 'http://vllm:8000/v1' }, /must be set together/],
+    [{ AI_API_MODEL: 'default', AI_API_KEY: 'k' }, /must be set together/],
+    [{ AI_API_BASE_URL: 'vllm:8000', AI_API_MODEL: 'm' }, /http or https/],
+    [{ AI_API_BASE_URL: 'not a url', AI_API_MODEL: 'm' }, /not a valid URL/],
+  ])('refuses a description that cannot work: %o', (env, message) => {
+    expect(() => readEnvAiConfig(env)).toThrow(message);
+  });
+
+  it('is used while nothing is saved, with its key sent as given', async () => {
+    const fetchFn = completion();
+    const { provider } = factory({ env: ENV, fetchFn });
+    expect(await provider.getAiStatus()).toMatchObject({ enabled: true, provider: AI_PROVIDER_API_KEY });
+    await provider.completeText([{ role: 'user', content: 'Hi' }]);
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe('http://vllm:8000/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer env-secret');
+    expect(JSON.parse(init.body).model).toBe('default');
+  });
+
+  it('is shown to admins with its key masked and its origin named', async () => {
+    const { provider } = factory({ env: ENV });
+    expect(await provider.getAdminAiConfig()).toMatchObject({
+      source: 'environment',
+      apiKeyConfig: { baseUrl: 'http://vllm:8000/v1', apiKey: MASKED_API_KEY, model: 'default' },
+    });
+  });
+
+  it('gives way to a configuration saved under Settings', async () => {
+    const fetchFn = completion();
+    const { provider } = factory({
+      env: ENV,
+      fetchFn,
+      initial: { enabled: true, provider: AI_PROVIDER_API_KEY, apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: 'encrypted:saved', model: 'saved-model' } },
+    });
+    await provider.completeText([{ role: 'user', content: 'Hi' }]);
+    expect(fetchFn.mock.calls[0][0]).toBe('https://api.example/v1/chat/completions');
+    expect(fetchFn.mock.calls[0][1].headers.Authorization).toBe('Bearer saved');
+    expect((await provider.getAdminAiConfig()).source).toBeUndefined();
+  });
+
+  it('keeps its key, encrypted, when an admin saves the form it filled in', async () => {
+    const { provider, settings } = factory({ env: ENV });
+    await provider.saveAiConfig({
+      enabled: true,
+      provider: AI_PROVIDER_API_KEY,
+      apiKeyConfig: { baseUrl: 'http://vllm:8000/v1', apiKey: MASKED_API_KEY, model: 'default' },
+      features: { compose: true, summarize: false },
+    });
+    expect(settings.read()).toMatchObject({
+      apiKeyConfig: { baseUrl: 'http://vllm:8000/v1', apiKey: 'encrypted:env-secret', model: 'default' },
+      features: { compose: true, summarize: false },
+    });
+    expect(settings.read()).not.toHaveProperty('source');
+  });
+
+  it('comes back when the saved configuration is removed', async () => {
+    const { provider } = factory({
+      env: ENV,
+      initial: { enabled: false, provider: AI_PROVIDER_API_KEY, apiKeyConfig: { baseUrl: 'https://api.example/v1', model: 'saved-model' } },
+    });
+    expect((await provider.getAiStatus()).enabled).toBe(false);
+    await provider.deleteAiConfig();
+    expect(await provider.getAiStatus()).toMatchObject({ enabled: true });
+    expect((await provider.loadAiConfig()).apiKeyConfig.model).toBe('default');
   });
 });
 

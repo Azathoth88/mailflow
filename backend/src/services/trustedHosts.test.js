@@ -19,11 +19,13 @@ beforeEach(() => {
   dns.resolve6.mockResolvedValue([]);
   delete process.env.TRUSTED_PRIVATE_HOSTS;
   delete process.env.OIDC_ISSUER_URL;
+  delete process.env.AI_API_BASE_URL;
 });
 
 afterEach(() => {
   delete process.env.TRUSTED_PRIVATE_HOSTS;
   delete process.env.OIDC_ISSUER_URL;
+  delete process.env.AI_API_BASE_URL;
 });
 
 describe('isTrustedPrivateHost', () => {
@@ -51,6 +53,12 @@ describe('isTrustedPrivateHost', () => {
     expect(isTrustedPrivateHost('example.com')).toBe(false);
     process.env.OIDC_ISSUER_URL = 'not a url';
     expect(isTrustedPrivateHost('not a url')).toBe(false);
+  });
+
+  it('trusts the host of the AI endpoint the environment configures', () => {
+    process.env.AI_API_BASE_URL = 'http://vllm:8000/v1';
+    expect(isTrustedPrivateHost('vllm')).toBe(true);
+    expect(isTrustedPrivateHost('ollama')).toBe(false);
   });
 
   it('matches a bracketed IPv6 literal against its bare form', () => {

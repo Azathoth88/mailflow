@@ -5,7 +5,7 @@ import { domainToASCII } from 'url';
 // the same machine, or in a container network, the operator's own services resolve privately.
 // So may the host of a URL the operator configures in the environment: naming it twice would
 // add nothing but a way to get it wrong.
-const URL_VARIABLES = ['OIDC_ISSUER_URL'];
+const URL_VARIABLES = ['OIDC_ISSUER_URL', 'AI_API_BASE_URL'];
 
 function normalizeHost(host) {
   let h = String(host || '').trim();

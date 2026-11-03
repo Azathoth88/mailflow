@@ -45,6 +45,7 @@ import { start as startSpamScheduler } from './services/spamScheduler.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { readEnvOidcProvider, syncEnvOidcProvider } from './services/envOidcProvider.js';
+import { readEnvAiConfig } from './services/aiProvider.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { closeWebSocketClients, createWebSocketServer, setupWebSocket } from './services/websocket.js';
@@ -102,6 +103,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
 }
 try {
   readEnvOidcProvider();
+  readEnvAiConfig();
 } catch (err) {
   console.error(`FATAL: ${err.message}. Exiting.`);
   process.exit(1);
