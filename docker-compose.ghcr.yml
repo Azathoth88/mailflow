@@ -91,6 +91,10 @@ services:
       OIDC_PROVISIONING_MODE: ${OIDC_PROVISIONING_MODE:-}
       OIDC_ADMIN_GROUP_CLAIM: ${OIDC_ADMIN_GROUP_CLAIM:-}
       OIDC_ADMIN_GROUP_VALUE: ${OIDC_ADMIN_GROUP_VALUE:-}
+      # An AI provider from the environment, used while none is saved under Settings.
+      AI_API_BASE_URL: ${AI_API_BASE_URL:-}
+      AI_API_MODEL: ${AI_API_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
