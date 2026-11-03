@@ -2343,7 +2343,12 @@
     "signedInGoogle": "Conectado com o Google como {{email}}",
     "signedInNote": "O servidor vem desta conexão. Se a conta parar de conectar, entre novamente.",
     "mailboxLabel": "Caixa de correio a abrir",
-    "mailboxHelp": "Para uma caixa compartilhada ou delegada, digite o endereço dela. Deixe como está para a sua própria caixa."
+    "mailboxHelp": "Para uma caixa compartilhada ou delegada, digite o endereço dela. Deixe como está para a sua própria caixa.",
+    "autoconfigSearching": "Procurando as configurações do servidor para {{domain}}…",
+    "autoconfigFoundDomain": "Configurações do servidor de {{provider}} preenchidas conforme publicadas por {{domain}}. Confira antes de salvar.",
+    "autoconfigFoundIspdb": "Configurações do servidor de {{provider}} preenchidas a partir do banco de dados público do Thunderbird. Confira antes de salvar.",
+    "autoconfigFoundMx": "Os e-mails de {{domain}} ficam no {{provider}}; as configurações do servidor foram preenchidas.",
+    "autoconfigNone": "Nenhuma configuração de servidor encontrada para {{domain}}. Preencha abaixo."
   },
   "googleSignIn": {
     "title": "Entrar com o Google",

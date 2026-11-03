@@ -2343,7 +2343,12 @@
     "signedInGoogle": "已以 {{email}} 使用 Google 登录",
     "signedInNote": "服务器信息来自此次登录。如果帐户无法连接，请重新登录。",
     "mailboxLabel": "要打开的邮箱",
-    "mailboxHelp": "如需打开共享或委托的邮箱，请输入其地址。打开自己的邮箱时保持不变即可。"
+    "mailboxHelp": "如需打开共享或委托的邮箱，请输入其地址。打开自己的邮箱时保持不变即可。",
+    "autoconfigSearching": "正在查找 {{domain}} 的服务器设置…",
+    "autoconfigFoundDomain": "已按 {{domain}} 发布的配置填入 {{provider}} 的服务器设置。保存前请检查。",
+    "autoconfigFoundIspdb": "已从 Thunderbird 公共数据库填入 {{provider}} 的服务器设置。保存前请检查。",
+    "autoconfigFoundMx": "{{domain}} 的邮件托管在 {{provider}}，已填入其服务器设置。",
+    "autoconfigNone": "未找到 {{domain}} 的服务器设置。请在下方手动填写。"
   },
   "googleSignIn": {
     "title": "使用 Google 登录",

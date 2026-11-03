@@ -15,6 +15,7 @@ import { normalizeAddressList } from '../utils/addressList.js';
 import { reportConnect } from '../services/connectReport.js';
 import { findOwnedAccount, findOwnedAlias } from '../services/ownership.js';
 import { NEXT_ACCOUNT_SORT_ORDER, setAccountOrder } from '../services/accountOrder.js';
+import { autoconfigDomain, lookupAutoconfig } from '../services/mailAutoconfig.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -128,6 +129,22 @@ router.get('/', async (req, res) => {
     };
   }));
   res.json(enriched);
+});
+
+// IMAP and SMTP settings for an address, to fill in the add-account form. Only a suggestion:
+// POST / still validates whatever the user saves.
+router.get('/autoconfig', async (req, res) => {
+  const { email } = req.query;
+  if (!autoconfigDomain(email)) return res.status(400).json({ error: 'A valid email address is required' });
+  try {
+    const policy = await getConnectionPolicy();
+    const allowNonstandardPorts = policy.allowNonstandardPorts || process.env.ALLOW_PRIVATE_IMAP_HOSTS === 'true';
+    const found = await lookupAutoconfig(email, { allowNonstandardPorts });
+    res.json(found ? { found: true, ...found } : { found: false });
+  } catch (err) {
+    console.error('GET /accounts/autoconfig error:', err.message);
+    res.status(500).json({ error: 'Autoconfig lookup failed' });
+  }
 });
 
 router.post('/', async (req, res) => {

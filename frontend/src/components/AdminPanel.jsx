@@ -41,7 +41,7 @@ import AddAccountChooser from './AddAccountChooser.jsx';
 import MicrosoftSignIn from './MicrosoftSignIn.jsx';
 import GoogleSignIn from './GoogleSignIn.jsx';
 import { describeAccountError } from '../utils/accountErrors.js';
-import { detectProvider } from '../utils/providerDetect.js';
+import { detectProvider, emailDomain } from '../utils/providerDetect.js';
 import { formatRelativeTime, daysSince } from '../utils/relativeTime.js';
 import { formatDateTime, formatDay, formatTime } from '../utils/formatDate.js';
 import { htmlLang } from '../utils/browserLanguage.js';
@@ -100,8 +100,10 @@ function isMicrosoftImapHost(host) {
 
 // prefill (add only): { email, preset } from the Add account chooser.
 // onMicrosoftSignIn (add only): switch to "Sign in with Microsoft" when an Outlook.com host is typed.
+// onHostedSignIn (add only): (signIn: 'google' | 'microsoft') => whether it switched to that sign-in,
+// for an address from the chooser whose domain's mail is hosted there (MX).
 // onSignInAgain (edit only): "Sign in again" for an account connected through a sign-in.
-function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, onGoogleSignIn, onSignInAgain }) {
+function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, onGoogleSignIn, onHostedSignIn, onSignInAgain }) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();
 
@@ -188,6 +190,45 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
     ...f, email_address: value,
     ...(!isEdit && !authUserEdited && (!f.auth_user || f.auth_user === f.email_address) ? { auth_user: value } : {}),
   }));
+
+  // Server settings for the address (autoconfig, GET /accounts/autoconfig). They fill in only a
+  // form whose servers are still empty (a preset has filled them already), and only for the
+  // address they were asked for, so nothing typed meanwhile is overwritten.
+  // autoconfig: null | { state: 'searching' | 'found' | 'none', domain, source, provider }
+  const [autoconfig, setAutoconfig] = useState(null);
+  const autoconfigDomainRef = useRef(null);
+  const formRef = useRef(form);
+  formRef.current = form;
+  const lookupServers = (email, { fromChooser = false } = {}) => {
+    const domain = emailDomain(email);
+    if (isEdit || !domain || autoconfigDomainRef.current === domain) return;
+    if ((form.imap_host || '').trim() || (form.smtp_host || '').trim()) return;
+    autoconfigDomainRef.current = domain;
+    setAutoconfig({ state: 'searching', domain });
+    api.lookupAutoconfig(email.trim())
+      .then(found => {
+        if (autoconfigDomainRef.current !== domain) return;
+        if (!found?.found) { setAutoconfig({ state: 'none', domain }); return; }
+        const now = formRef.current;
+        if (emailDomain(now.email_address) !== domain || (now.imap_host || '').trim() || (now.smtp_host || '').trim()) {
+          setAutoconfig(null);
+          return;
+        }
+        // As the chooser does for @gmail.com: straight to the sign-in, when it is set up. Not
+        // for an address typed here, which would drop what else has been typed.
+        if (fromChooser && found.signIn && onHostedSignIn?.(found.signIn)) return;
+        const { auth_user, ...servers } = found.settings;
+        setForm(f => {
+          const followsAddress = !f.auth_user || f.auth_user === f.email_address;
+          return { ...f, ...servers, ...(followsAddress && auth_user ? { auth_user } : {}) };
+        });
+        setAutoconfig({ state: 'found', domain, source: found.source, provider: found.provider });
+      })
+      .catch(() => { if (autoconfigDomainRef.current === domain) setAutoconfig({ state: 'none', domain }); });
+  };
+  useEffect(() => {
+    if (prefill?.email && !prefill?.preset) lookupServers(prefill.email, { fromChooser: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, for the address the chooser passed
 
   const handlePreset = (key) => {
     const p = PRESETS[key];
@@ -302,7 +343,16 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
           <input value={form.email_address || ''} onChange={e => setEmail(e.target.value)}
             placeholder={t('admin.accounts.emailPh')} style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            onBlur={e => { e.target.style.borderColor = 'var(--border)'; lookupServers(e.target.value); }} />
+          {autoconfig && autoconfig.domain === emailDomain(form.email_address) && (
+            <div data-autoconfig={autoconfig.state} role="status" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.5 }}>
+              {autoconfig.state === 'searching' ? t('accountForm.autoconfigSearching', { domain: autoconfig.domain })
+                : autoconfig.state === 'none' ? t('accountForm.autoconfigNone', { domain: autoconfig.domain })
+                : t(autoconfig.source === 'mx' ? 'accountForm.autoconfigFoundMx'
+                  : autoconfig.source === 'ispdb' ? 'accountForm.autoconfigFoundIspdb' : 'accountForm.autoconfigFoundDomain',
+                  { domain: autoconfig.domain, provider: autoconfig.provider || autoconfig.domain })}
+            </div>
+          )}
         </Field>
       )}
 
@@ -1026,7 +1076,12 @@ function AccountsTab() {
             </div>
             <AccountForm key={`${addStep.preset}:${addStep.email}`} prefill={addStep} onSave={handleAdd} onCancel={toChooser}
               onMicrosoftSignIn={(kind) => setAddStep({ step: 'microsoft', mode: kind === 'work' ? 'work' : 'personal' })}
-              onGoogleSignIn={() => setAddStep({ step: 'google' })} />
+              onGoogleSignIn={() => setAddStep({ step: 'google' })}
+              onHostedSignIn={(signIn) => {
+                if (signIn === 'google' && googleStatus?.signIn) { setAddStep({ step: 'google' }); return true; }
+                if (signIn === 'microsoft' && msStatus?.workAccounts) { setAddStep({ step: 'microsoft', mode: 'work' }); return true; }
+                return false;
+              }} />
           </>
         )}
       </div>
