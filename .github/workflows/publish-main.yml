@@ -42,6 +42,7 @@ jobs:
           sha="$(git rev-parse HEAD)"
           tip="$(git ls-remote origin refs/heads/main | cut -f1)"
           echo "short=${sha::7}" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./backend/package.json').version")+main.${sha::7}" >> "$GITHUB_OUTPUT"
           if [ "$sha" = "$tip" ]; then echo "tip=true" >> "$GITHUB_OUTPUT"; else echo "tip=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Set up Docker Buildx
@@ -67,6 +68,9 @@ jobs:
           tags: |
             type=raw,value=main
             type=raw,value=sha-${{ steps.rev.outputs.short }}
+          # vibOS shows this label as the running version.
+          labels: |
+            org.opencontainers.image.version=${{ steps.rev.outputs.version }}
 
       # amd64 only: vibOS runs on x86_64, and building arm64 under QEMU doubles the wait.
       # APP_VERSION stays unset, so the version comes from package.json.
@@ -97,6 +101,9 @@ jobs:
           tags: |
             type=raw,value=main
             type=raw,value=sha-${{ steps.rev.outputs.short }}
+          # vibOS shows this label as the running version.
+          labels: |
+            org.opencontainers.image.version=${{ steps.rev.outputs.version }}
 
       - name: Build and push frontend
         if: steps.rev.outputs.tip == 'true'
