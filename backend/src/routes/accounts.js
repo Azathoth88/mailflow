@@ -163,7 +163,7 @@ router.get('/autoconfig', async (req, res) => {
   try {
     const policy = await getConnectionPolicy();
     const allowNonstandardPorts = policy.allowNonstandardPorts || process.env.ALLOW_PRIVATE_IMAP_HOSTS === 'true';
-    const found = await lookupAutoconfig(email, { allowNonstandardPorts });
+    const found = await lookupAutoconfig(email, { allowNonstandardPorts, allowPrivate: policy.allowPrivateHosts });
     res.json(found ? { found: true, ...found } : { found: false });
   } catch (err) {
     console.error('GET /accounts/autoconfig error:', err.message);

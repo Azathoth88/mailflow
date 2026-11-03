@@ -349,6 +349,7 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
               {autoconfig.state === 'searching' ? t('accountForm.autoconfigSearching', { domain: autoconfig.domain })
                 : autoconfig.state === 'none' ? t('accountForm.autoconfigNone', { domain: autoconfig.domain })
                 : t(autoconfig.source === 'mx' ? 'accountForm.autoconfigFoundMx'
+                  : autoconfig.source === 'probe' ? 'accountForm.autoconfigFoundProbe'
                   : autoconfig.source === 'ispdb' ? 'accountForm.autoconfigFoundIspdb' : 'accountForm.autoconfigFoundDomain',
                   { domain: autoconfig.domain, provider: autoconfig.provider || autoconfig.domain })}
             </div>

@@ -2348,6 +2348,7 @@
     "autoconfigFoundDomain": "Server settings for {{provider}} filled in, as published by {{domain}}. Please check them before saving.",
     "autoconfigFoundIspdb": "Server settings for {{provider}} filled in from Thunderbird's public database. Please check them before saving.",
     "autoconfigFoundMx": "Mail for {{domain}} is hosted by {{provider}}; its server settings are filled in.",
+    "autoconfigFoundProbe": "Server settings found by trying the usual server names for {{domain}}. Please check them before saving.",
     "autoconfigNone": "No server settings found for {{domain}}. Please enter them below."
   },
   "googleSignIn": {

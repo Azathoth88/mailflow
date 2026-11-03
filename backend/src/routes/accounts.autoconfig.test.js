@@ -39,7 +39,7 @@ describe('GET /api/accounts/autoconfig', () => {
     const res = await get('?email=max%40example.de');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ found: true, source: 'ispdb', provider: 'Example', settings: { imap_host: 'imap.example.de', imap_port: 993 } });
-    expect(lookupAutoconfig).toHaveBeenCalledWith('max@example.de', { allowNonstandardPorts: false });
+    expect(lookupAutoconfig).toHaveBeenCalledWith('max@example.de', { allowNonstandardPorts: false, allowPrivate: false });
   });
 
   it('says so when nothing was found', async () => {
@@ -47,11 +47,11 @@ describe('GET /api/accounts/autoconfig', () => {
     expect(await (await get('?email=max%40example.de')).json()).toEqual({ found: false });
   });
 
-  it('passes on the instance\'s port policy', async () => {
-    getConnectionPolicy.mockResolvedValue({ allowNonstandardPorts: true });
+  it('passes on the instance\'s port and private-host policy', async () => {
+    getConnectionPolicy.mockResolvedValue({ allowNonstandardPorts: true, allowPrivateHosts: true });
     lookupAutoconfig.mockResolvedValue(null);
     await get('?email=max%40example.de');
-    expect(lookupAutoconfig).toHaveBeenCalledWith('max@example.de', { allowNonstandardPorts: true });
+    expect(lookupAutoconfig).toHaveBeenCalledWith('max@example.de', { allowNonstandardPorts: true, allowPrivate: true });
   });
 
   it.each(['', '?email=', '?email=a%4010.0.0.5', '?email=a%40example.de%2Fx', '?email=a@b.de&email=c@d.de'])('refuses %s', async (qs) => {

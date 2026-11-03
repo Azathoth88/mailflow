@@ -500,6 +500,15 @@ describe('server settings from autoconfig', () => {
     assert.ok(status().textContent.includes('accountForm.autoconfigFoundIspdb'));
   });
 
+  test('says when the settings come from trying the usual server names, or from DNS', async () => {
+    for (const [source, key] of [['probe', 'accountForm.autoconfigFoundProbe'], ['srv', 'accountForm.autoconfigFoundDomain']]) {
+      await openAdd('builtin', { autoconfig: async () => ({ ...FOUND, source, provider: null }) });
+      await typeAndContinue('maria@example.de');
+      await until(() => status()?.dataset.autoconfig === 'found');
+      assert.ok(status().textContent.includes(key), source);
+    }
+  });
+
   test('nothing found leaves the servers empty and says so', async () => {
     await openAdd('builtin');
     await typeAndContinue('maria@example.de');
