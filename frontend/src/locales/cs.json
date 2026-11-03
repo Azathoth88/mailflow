@@ -2362,7 +2362,11 @@
     "signedInGoogle": "Přihlášeno přes Google jako {{email}}",
     "signedInNote": "Server pochází z tohoto přihlášení. Pokud se účet přestane připojovat, přihlaste se znovu.",
     "mailboxLabel": "Schránka k otevření",
-    "mailboxHelp": "U sdílené nebo delegované schránky zadejte její adresu. U vlastní schránky ponechte beze změny."
+    "mailboxHelp": "U sdílené nebo delegované schránky zadejte její adresu. U vlastní schránky ponechte beze změny.",
+    "autoconfigSearching": "Hledá se nastavení serveru pro {{domain}}…",
+    "autoconfigFoundDomain": "Nastavení serveru {{provider}} bylo vyplněno podle údajů zveřejněných doménou {{domain}}. Před uložením je zkontrolujte.",
+    "autoconfigFoundIspdb": "Nastavení serveru {{provider}} bylo vyplněno z veřejné databáze Thunderbirdu. Před uložením je zkontrolujte.",
+    "autoconfigNone": "Pro {{domain}} nebylo nalezeno žádné nastavení serveru. Zadejte ho níže."
   },
   "googleSignIn": {
     "title": "Přihlásit se přes Google",

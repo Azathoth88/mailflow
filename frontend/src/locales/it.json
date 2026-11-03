@@ -2343,7 +2343,11 @@
     "signedInGoogle": "Accesso con Google come {{email}}",
     "signedInNote": "Il server proviene da questo accesso. Se l'account smette di connettersi, accedi di nuovo.",
     "mailboxLabel": "Casella da aprire",
-    "mailboxHelp": "Per una casella condivisa o delegata, inserisci il suo indirizzo. Lascia così per la tua casella."
+    "mailboxHelp": "Per una casella condivisa o delegata, inserisci il suo indirizzo. Lascia così per la tua casella.",
+    "autoconfigSearching": "Ricerca delle impostazioni del server per {{domain}}…",
+    "autoconfigFoundDomain": "Impostazioni del server di {{provider}} compilate come pubblicate da {{domain}}. Controllale prima di salvare.",
+    "autoconfigFoundIspdb": "Impostazioni del server di {{provider}} compilate dal database pubblico di Thunderbird. Controllale prima di salvare.",
+    "autoconfigNone": "Nessuna impostazione del server trovata per {{domain}}. Inseriscile qui sotto."
   },
   "googleSignIn": {
     "title": "Accedi con Google",

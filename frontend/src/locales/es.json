@@ -2343,7 +2343,11 @@
     "signedInGoogle": "Sesión iniciada con Google como {{email}}",
     "signedInNote": "El servidor viene de esta conexión. Si la cuenta deja de conectarse, vuelve a iniciar sesión.",
     "mailboxLabel": "Buzón que abrir",
-    "mailboxHelp": "Para un buzón compartido o delegado, escribe su dirección. Déjalo como está para tu propio buzón."
+    "mailboxHelp": "Para un buzón compartido o delegado, escribe su dirección. Déjalo como está para tu propio buzón.",
+    "autoconfigSearching": "Buscando la configuración del servidor para {{domain}}…",
+    "autoconfigFoundDomain": "Configuración del servidor de {{provider}} completada, tal como la publica {{domain}}. Revísela antes de guardar.",
+    "autoconfigFoundIspdb": "Configuración del servidor de {{provider}} completada desde la base de datos pública de Thunderbird. Revísela antes de guardar.",
+    "autoconfigNone": "No se encontró configuración del servidor para {{domain}}. Introdúzcala a continuación."
   },
   "googleSignIn": {
     "title": "Iniciar sesión con Google",
