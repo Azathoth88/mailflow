@@ -104,7 +104,8 @@ let polls;
 let deviceStarts;
 let reconnects;
 let reloaded;
-async function openAdd(config, { isAdmin = false, accounts = [], intent = { action: 'add' }, google = { configured: false, signIn: false } } = {}) {
+let lookups;
+async function openAdd(config, { isAdmin = false, accounts = [], intent = { action: 'add' }, google = { configured: false, signIn: false }, autoconfig = async () => ({ found: false }) } = {}) {
   if (root) await act(async () => root.unmount());
   polls = [];
   deviceStarts = 0;
@@ -117,6 +118,8 @@ async function openAdd(config, { isAdmin = false, accounts = [], intent = { acti
   api.startMsDeviceFlow = async () => { deviceStarts++; return { userCode: 'K7QWZP2M', verificationUri: 'https://microsoft.com/devicelogin', interval: 0.01 }; };
   api.pollMsDeviceFlow = async () => polls.shift() || { status: 'pending' };
   api.reconnectAccount = async (id, opts) => { reconnects.push([id, opts]); return { ok: true, connection: 'connected' }; };
+  lookups = [];
+  api.lookupAutoconfig = async (email) => { lookups.push(email); return autoconfig(email); };
   useStore.setState({ user: { id: 'u1', isAdmin }, accounts, adminTab: 'accounts', accountsIntent: intent, showAdmin: true });
   await act(async () => {
     root = createRoot(doc.getElementById('root'));
@@ -476,3 +479,74 @@ describe('Gmail', () => {
   });
 });
 
+// Server settings for an address no preset covers, from GET /accounts/autoconfig.
+describe('server settings from autoconfig', () => {
+  const FOUND = {
+    found: true, source: 'ispdb', provider: 'Example Mail',
+    settings: { imap_host: 'imap.example.de', imap_port: 143, auth_user: 'maria', smtp_host: 'smtp.example.de', smtp_port: 465, smtp_tls: 'SSL', smtp_auth_user: '' },
+  };
+  const input = (ph) => doc.querySelector(`input[placeholder="admin.accounts.${ph}"]`);
+  const status = () => doc.querySelector('[data-autoconfig]');
+  const blur = (el) => act(async () => { el.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true })); });
+
+  test('an address from the chooser fills in the servers and the login, and says where they came from', async () => {
+    await openAdd('builtin', { autoconfig: async () => FOUND });
+    await typeAndContinue('maria@example.de');
+    await until(() => status()?.dataset.autoconfig === 'found');
+    assert.deepEqual(lookups, ['maria@example.de']);
+    assert.equal(input('imapHostPh').value, 'imap.example.de');
+    assert.equal(input('smtpHostPh').value, 'smtp.example.de');
+    assert.equal(input('authUserPh').value, 'maria');
+    assert.ok(status().textContent.includes('accountForm.autoconfigFoundIspdb'));
+  });
+
+  test('nothing found leaves the servers empty and says so', async () => {
+    await openAdd('builtin');
+    await typeAndContinue('maria@example.de');
+    await until(() => status()?.dataset.autoconfig === 'none');
+    assert.equal(input('imapHostPh').value, '');
+    assert.ok(status().textContent.includes('accountForm.autoconfigNone'));
+  });
+
+  test('a failed lookup reads as nothing found, not as an error', async () => {
+    await openAdd('builtin', { autoconfig: async () => { throw new Error('Autoconfig lookup failed'); } });
+    await typeAndContinue('maria@example.de');
+    await until(() => status()?.dataset.autoconfig === 'none');
+    assert.equal(status()?.dataset.autoconfig, 'none');
+    assert.equal(input('imapHostPh').value, '');
+  });
+
+  test('a server typed while the lookup runs is not overwritten', async () => {
+    let answer;
+    await openAdd('builtin', { autoconfig: () => new Promise(r => { answer = r; }) });
+    await typeAndContinue('maria@example.de');
+    assert.equal(status().dataset.autoconfig, 'searching');
+    await setValue(input('imapHostPh'), 'mail.own.example');
+    await act(async () => { answer(FOUND); });
+    assert.equal(input('imapHostPh').value, 'mail.own.example');
+    assert.equal(input('smtpHostPh').value, '');
+    assert.equal(status(), null);
+  });
+
+  test('an answer for an address since changed is dropped', async () => {
+    let answer;
+    await openAdd('builtin', { autoconfig: () => new Promise(r => { answer = r; }) });
+    await typeAndContinue('maria@example.de');
+    await setValue(input('emailPh'), 'maria@other.example');
+    await act(async () => { answer(FOUND); });
+    assert.equal(input('imapHostPh').value, '');
+  });
+
+  test('an address typed into the form is looked up when the field is left', async () => {
+    await openAdd('builtin', { autoconfig: async () => FOUND });
+    await click(tile('other'));
+    assert.deepEqual(lookups, []);
+    await setValue(input('emailPh'), 'maria@example.de');
+    await blur(input('emailPh'));
+    await until(() => status()?.dataset.autoconfig === 'found');
+    assert.equal(input('imapHostPh').value, 'imap.example.de');
+    // Leaving the field again does not ask twice for the same domain.
+    await blur(input('emailPh'));
+    assert.deepEqual(lookups, ['maria@example.de']);
+  });
+});

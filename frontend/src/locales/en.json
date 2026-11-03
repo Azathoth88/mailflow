@@ -2343,7 +2343,11 @@
     "signedInGoogle": "Signed in with Google as {{email}}",
     "signedInNote": "The server comes from this sign-in. If the account stops connecting, sign in again.",
     "mailboxLabel": "Mailbox to open",
-    "mailboxHelp": "For a shared or delegated mailbox, enter its address. Leave as is for your own mailbox."
+    "mailboxHelp": "For a shared or delegated mailbox, enter its address. Leave as is for your own mailbox.",
+    "autoconfigSearching": "Looking up server settings for {{domain}}…",
+    "autoconfigFoundDomain": "Server settings for {{provider}} filled in, as published by {{domain}}. Please check them before saving.",
+    "autoconfigFoundIspdb": "Server settings for {{provider}} filled in from Thunderbird's public database. Please check them before saving.",
+    "autoconfigNone": "No server settings found for {{domain}}. Please enter them below."
   },
   "googleSignIn": {
     "title": "Sign in with Google",

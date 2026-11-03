@@ -41,7 +41,7 @@ import AddAccountChooser from './AddAccountChooser.jsx';
 import MicrosoftSignIn from './MicrosoftSignIn.jsx';
 import GoogleSignIn from './GoogleSignIn.jsx';
 import { describeAccountError } from '../utils/accountErrors.js';
-import { detectProvider } from '../utils/providerDetect.js';
+import { detectProvider, emailDomain } from '../utils/providerDetect.js';
 import { formatRelativeTime, daysSince } from '../utils/relativeTime.js';
 import { formatDateTime, formatDay, formatTime } from '../utils/formatDate.js';
 import { htmlLang } from '../utils/browserLanguage.js';
@@ -189,6 +189,42 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
     ...(!isEdit && !authUserEdited && (!f.auth_user || f.auth_user === f.email_address) ? { auth_user: value } : {}),
   }));
 
+  // Server settings for the address (autoconfig, GET /accounts/autoconfig). They fill in only a
+  // form whose servers are still empty (a preset has filled them already), and only for the
+  // address they were asked for, so nothing typed meanwhile is overwritten.
+  // autoconfig: null | { state: 'searching' | 'found' | 'none', domain, source, provider }
+  const [autoconfig, setAutoconfig] = useState(null);
+  const autoconfigDomainRef = useRef(null);
+  const formRef = useRef(form);
+  formRef.current = form;
+  const lookupServers = (email) => {
+    const domain = emailDomain(email);
+    if (isEdit || !domain || autoconfigDomainRef.current === domain) return;
+    if ((form.imap_host || '').trim() || (form.smtp_host || '').trim()) return;
+    autoconfigDomainRef.current = domain;
+    setAutoconfig({ state: 'searching', domain });
+    api.lookupAutoconfig(email.trim())
+      .then(found => {
+        if (autoconfigDomainRef.current !== domain) return;
+        if (!found?.found) { setAutoconfig({ state: 'none', domain }); return; }
+        const now = formRef.current;
+        if (emailDomain(now.email_address) !== domain || (now.imap_host || '').trim() || (now.smtp_host || '').trim()) {
+          setAutoconfig(null);
+          return;
+        }
+        const { auth_user, ...servers } = found.settings;
+        setForm(f => {
+          const followsAddress = !f.auth_user || f.auth_user === f.email_address;
+          return { ...f, ...servers, ...(followsAddress && auth_user ? { auth_user } : {}) };
+        });
+        setAutoconfig({ state: 'found', domain, source: found.source, provider: found.provider });
+      })
+      .catch(() => { if (autoconfigDomainRef.current === domain) setAutoconfig({ state: 'none', domain }); });
+  };
+  useEffect(() => {
+    if (prefill?.email && !prefill?.preset) lookupServers(prefill.email);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, for the address the chooser passed
+
   const handlePreset = (key) => {
     const p = PRESETS[key];
     if (p.imap_host) setForm(f => ({ ...f, ...p, label: undefined }));
@@ -302,7 +338,15 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
           <input value={form.email_address || ''} onChange={e => setEmail(e.target.value)}
             placeholder={t('admin.accounts.emailPh')} style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            onBlur={e => { e.target.style.borderColor = 'var(--border)'; lookupServers(e.target.value); }} />
+          {autoconfig && autoconfig.domain === emailDomain(form.email_address) && (
+            <div data-autoconfig={autoconfig.state} role="status" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.5 }}>
+              {autoconfig.state === 'searching' ? t('accountForm.autoconfigSearching', { domain: autoconfig.domain })
+                : autoconfig.state === 'none' ? t('accountForm.autoconfigNone', { domain: autoconfig.domain })
+                : t(autoconfig.source === 'ispdb' ? 'accountForm.autoconfigFoundIspdb' : 'accountForm.autoconfigFoundDomain',
+                  { domain: autoconfig.domain, provider: autoconfig.provider || autoconfig.domain })}
+            </div>
+          )}
         </Field>
       )}
 

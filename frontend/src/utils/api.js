@@ -349,6 +349,7 @@ export const api = {
   // Accounts
   getAccounts: () => request('GET', '/accounts'),
   addAccount: (data) => request('POST', '/accounts', data),
+  lookupAutoconfig: (email) => request('GET', `/accounts/autoconfig?email=${encodeURIComponent(email)}`),
   updateAccount: (id, data) => request('PUT', `/accounts/${id}`, data),
   reorderAccounts: (ids) => request('PATCH', '/accounts/order', { ids }),
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
