@@ -2347,6 +2347,7 @@
     "autoconfigSearching": "Procurando as configurações do servidor para {{domain}}…",
     "autoconfigFoundDomain": "Configurações do servidor de {{provider}} preenchidas conforme publicadas por {{domain}}. Confira antes de salvar.",
     "autoconfigFoundIspdb": "Configurações do servidor de {{provider}} preenchidas a partir do banco de dados público do Thunderbird. Confira antes de salvar.",
+    "autoconfigFoundMx": "Os e-mails de {{domain}} ficam no {{provider}}; as configurações do servidor foram preenchidas.",
     "autoconfigNone": "Nenhuma configuração de servidor encontrada para {{domain}}. Preencha abaixo."
   },
   "googleSignIn": {

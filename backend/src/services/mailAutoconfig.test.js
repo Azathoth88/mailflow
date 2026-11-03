@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('./safeFetch.js', () => ({ safeFetch: vi.fn() }));
 
 const { safeFetch } = await import('./safeFetch.js');
-const { autoconfigDomain, autoconfigUrls, parseAutoconfig, lookupAutoconfig } = await import('./mailAutoconfig.js');
+const { autoconfigDomain, autoconfigUrls, parseAutoconfig, lookupAutoconfig, mxHosting } = await import('./mailAutoconfig.js');
 
 const server = (tag, type, { host, port, socket, username = '%EMAILADDRESS%', auth = ['password-cleartext'] }) =>
   `<${tag} type="${type}"><hostname>${host}</hostname><port>${port}</port><socketType>${socket}</socketType>` +
@@ -18,6 +18,8 @@ const config = (...servers) =>
   `<displayName>Example Mail</displayName>${servers.join('')}</emailProvider></clientConfig>`;
 
 const EMAIL = 'max@example.de';
+const noMx = async () => { throw Object.assign(new Error('queryMx ENODATA'), { code: 'ENODATA' }); };
+const mx = (...exchanges) => async () => exchanges.map(([exchange, priority]) => ({ exchange, priority }));
 
 describe('autoconfigDomain', () => {
   it.each([
@@ -117,14 +119,14 @@ describe('lookupAutoconfig', () => {
 
   it('goes through safeFetch by default', async () => {
     safeFetch.mockImplementation(answers({ 'https://autoconfig.example.de/': GOOD }));
-    expect((await lookupAutoconfig(EMAIL)).source).toBe('domain');
+    expect((await lookupAutoconfig(EMAIL, { resolveMx: noMx })).source).toBe('domain');
     expect(safeFetch).toHaveBeenCalledTimes(3);
     for (const [url] of safeFetch.mock.calls) expect(url.startsWith('https://')).toBe(true);
   });
 
   it('prefers the domain\'s own config over the database', async () => {
     const fetchImpl = answers({ 'https://example.de/.well-known/': GOOD, 'https://autoconfig.thunderbird.net/': ISPDB });
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl })).toMatchObject({ source: 'domain', settings: { imap_host: 'imap.example.de' } });
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: noMx })).toMatchObject({ source: 'domain', settings: { imap_host: 'imap.example.de' } });
   });
 
   it('falls back to the database when the domain has nothing usable', async () => {
@@ -133,19 +135,62 @@ describe('lookupAutoconfig', () => {
       'https://example.de/.well-known/': '<html>Welcome</html>',
       'https://autoconfig.thunderbird.net/': ISPDB,
     });
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl })).toMatchObject({ source: 'ispdb', settings: { imap_host: 'imap.ispdb.example' } });
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: noMx })).toMatchObject({ source: 'ispdb', settings: { imap_host: 'imap.ispdb.example' } });
   });
 
   it('refuses a response larger than an autoconfig file can be', async () => {
     const fetchImpl = answers({ 'https://autoconfig.thunderbird.net/': GOOD + ' '.repeat(300 * 1024) });
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl })).toBeNull();
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: noMx })).toBeNull();
   });
 
   it('gives null when nothing is found, and asks nobody for an address that is not one', async () => {
     const fetchImpl = answers({});
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl })).toBeNull();
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: noMx })).toBeNull();
     fetchImpl.mockClear();
-    expect(await lookupAutoconfig('a@10.0.0.5', { fetchImpl })).toBeNull();
+    expect(await lookupAutoconfig('a@10.0.0.5', { fetchImpl, resolveMx: noMx })).toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('mxHosting', () => {
+  it.each([
+    ['Google Workspace', [['aspmx.l.google.com', 1], ['alt1.aspmx.l.google.com', 5]], 'google', 'imap.gmail.com'],
+    ['Google Workspace (single MX)', [['smtp.google.com.', 1]], 'google', 'imap.gmail.com'],
+    ['Microsoft 365', [['example-de.mail.protection.outlook.com', 0]], 'microsoft', 'outlook.office365.com'],
+  ])('recognises %s', async (_, records, signIn, imapHost) => {
+    expect(await mxHosting('example.de', EMAIL, mx(...records))).toMatchObject({
+      signIn, settings: { imap_host: imapHost, imap_port: 993, auth_user: EMAIL, smtp_port: 587, smtp_tls: 'STARTTLS' },
+    });
+  });
+
+  it.each([
+    ['a host of its own', [['mx.example.de', 10]]],
+    ['a filtering gateway in front, with Google only as backup', [['mx1.gateway.example', 10], ['aspmx.l.google.com', 20]]],
+    ['a lookalike name', [['mx.evilgoogle.com', 1]]],
+    ['the provider name inside another domain', [['aspmx.l.google.com.attacker.example', 1]]],
+    ['no records', []],
+  ])('gives nothing for %s', async (_, records) => {
+    expect(await mxHosting('example.de', EMAIL, mx(...records))).toBeNull();
+  });
+
+  it('gives nothing when DNS fails', async () => {
+    expect(await mxHosting('example.de', EMAIL, noMx)).toBeNull();
+  });
+});
+
+describe('lookupAutoconfig with MX', () => {
+  const none = vi.fn(async () => new Response('Not found', { status: 404 }));
+
+  it('falls back to the MX host when no config is published', async () => {
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl: none, resolveMx: mx(['aspmx.l.google.com', 1]) })).toMatchObject({
+      source: 'mx', signIn: 'google', provider: 'Google Workspace', settings: { imap_host: 'imap.gmail.com' },
+    });
+  });
+
+  it('prefers a published config over the MX host', async () => {
+    const fetchImpl = vi.fn(async (url) => url.startsWith('https://autoconfig.example.de/')
+      ? new Response(config(imap({ host: 'imap.example.de', port: 993, socket: 'SSL' })), { status: 200 })
+      : new Response('Not found', { status: 404 }));
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: mx(['aspmx.l.google.com', 1]) })).toMatchObject({ source: 'domain' });
   });
 });

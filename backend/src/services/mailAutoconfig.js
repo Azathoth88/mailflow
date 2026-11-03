@@ -1,6 +1,7 @@
 // Finds IMAP and SMTP settings for an address, in Thunderbird's autoconfig format: the
 // domain's own config (autoconfig.<domain>, then /.well-known/autoconfig), then Thunderbird's
-// public database. The result only fills in the add-account form; the user still confirms it
+// public database; failing those, the domain's MX records, which tell a custom domain at Google
+// Workspace or Microsoft 365 apart. The result only fills in the add-account form; the user still confirms it
 // and POST /accounts validates host and port as for anything typed by hand.
 //
 // HTTPS only, through safeFetch: the answer decides where the mailbox password goes, so a
@@ -8,6 +9,7 @@
 // from user input, so private and reserved targets are refused on every hop.
 
 import { domainToASCII } from 'node:url';
+import { Resolver } from 'node:dns/promises';
 import { XMLParser } from 'fast-xml-parser';
 import { safeFetch } from './safeFetch.js';
 
@@ -142,17 +144,49 @@ async function fetchConfig(url, fetchImpl) {
   return readCapped(res);
 }
 
-// { source: 'domain' | 'ispdb', provider, settings } or null. The sources are asked at once;
-// the first in the order above that yields usable settings wins.
-export async function lookupAutoconfig(email, { allowNonstandardPorts = false, fetchImpl = safeFetch } = {}) {
+// Where a domain's mail is hosted, from its MX records: only the two hosts whose own sign-in the
+// add-account form offers. A filtering gateway in front of either hides it, and is then simply
+// not recognised. Their IMAP and SMTP servers are fixed, so the settings come from here; the
+// form then shows its Google or Microsoft sign-in note for them.
+const MX_HOSTS = [
+  { suffixes: ['.google.com', '.googlemail.com'], signIn: 'google', provider: 'Google Workspace',
+    settings: { imap_host: 'imap.gmail.com', imap_port: 993, smtp_host: 'smtp.gmail.com', smtp_port: 587, smtp_tls: 'STARTTLS' } },
+  { suffixes: ['.mail.protection.outlook.com'], signIn: 'microsoft', provider: 'Microsoft 365',
+    settings: { imap_host: 'outlook.office365.com', imap_port: 993, smtp_host: 'smtp.office365.com', smtp_port: 587, smtp_tls: 'STARTTLS' } },
+];
+
+const resolver = new Resolver({ timeout: 3000, tries: 2 });
+const systemResolveMx = (domain) => resolver.resolveMx(domain);
+
+// { signIn, provider, settings } for the host of the domain's preferred MX, or null.
+export async function mxHosting(domain, email, resolveMx = systemResolveMx) {
+  let records;
+  try { records = await resolveMx(domain); } catch { return null; }
+  const preferred = [...(records || [])].sort((a, b) => a.priority - b.priority)[0];
+  const exchange = String(preferred?.exchange || '').toLowerCase().replace(/\.$/, '');
+  const host = MX_HOSTS.find(h => h.suffixes.some(s => exchange.endsWith(s)));
+  if (!host) return null;
+  return {
+    signIn: host.signIn,
+    provider: host.provider,
+    settings: { ...host.settings, auth_user: email.trim(), smtp_auth_user: '' },
+  };
+}
+
+// { source: 'domain' | 'ispdb' | 'mx', provider, settings, signIn? } or null. The sources are
+// asked at once; the first in the order above that yields usable settings wins.
+export async function lookupAutoconfig(email, { allowNonstandardPorts = false, fetchImpl = safeFetch, resolveMx } = {}) {
   const domain = autoconfigDomain(email);
   if (!domain) return null;
   const candidates = autoconfigUrls(email, domain);
-  const results = await Promise.allSettled(candidates.map(c => fetchConfig(c.url, fetchImpl)));
+  const [results, mx] = await Promise.all([
+    Promise.allSettled(candidates.map(c => fetchConfig(c.url, fetchImpl))),
+    mxHosting(domain, email, resolveMx),
+  ]);
   for (const [i, r] of results.entries()) {
     if (r.status !== 'fulfilled') continue;
     const parsed = parseAutoconfig(r.value, email, { allowNonstandardPorts });
     if (parsed) return { source: candidates[i].source, ...parsed };
   }
-  return null;
+  return mx ? { source: 'mx', ...mx } : null;
 }

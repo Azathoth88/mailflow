@@ -2347,6 +2347,7 @@
     "autoconfigSearching": "Recherche des paramètres de serveur pour {{domain}}…",
     "autoconfigFoundDomain": "Paramètres de serveur de {{provider}} renseignés, tels que publiés par {{domain}}. Vérifiez-les avant d'enregistrer.",
     "autoconfigFoundIspdb": "Paramètres de serveur de {{provider}} renseignés depuis la base de données publique de Thunderbird. Vérifiez-les avant d'enregistrer.",
+    "autoconfigFoundMx": "Le courrier de {{domain}} est hébergé par {{provider}} ; ses paramètres de serveur sont renseignés.",
     "autoconfigNone": "Aucun paramètre de serveur trouvé pour {{domain}}. Saisissez-les ci-dessous."
   },
   "googleSignIn": {

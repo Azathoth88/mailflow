@@ -2347,6 +2347,7 @@
     "autoconfigSearching": "Servereinstellungen für {{domain}} werden gesucht …",
     "autoconfigFoundDomain": "Servereinstellungen für {{provider}} eingetragen, wie von {{domain}} veröffentlicht. Bitte vor dem Speichern prüfen.",
     "autoconfigFoundIspdb": "Servereinstellungen für {{provider}} aus der öffentlichen Datenbank von Thunderbird eingetragen. Bitte vor dem Speichern prüfen.",
+    "autoconfigFoundMx": "Die Mail von {{domain}} liegt bei {{provider}}; die Servereinstellungen sind eingetragen.",
     "autoconfigNone": "Keine Servereinstellungen für {{domain}} gefunden. Bitte unten eintragen."
   },
   "googleSignIn": {

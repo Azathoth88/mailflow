@@ -2347,6 +2347,7 @@
     "autoconfigSearching": "{{domain}}의 서버 설정을 찾는 중…",
     "autoconfigFoundDomain": "{{domain}}에서 게시한 {{provider}} 서버 설정을 입력했습니다. 저장하기 전에 확인하세요.",
     "autoconfigFoundIspdb": "Thunderbird 공개 데이터베이스에서 {{provider}} 서버 설정을 입력했습니다. 저장하기 전에 확인하세요.",
+    "autoconfigFoundMx": "{{domain}}의 메일은 {{provider}}에서 호스팅됩니다. 서버 설정을 입력했습니다.",
     "autoconfigNone": "{{domain}}의 서버 설정을 찾지 못했습니다. 아래에 직접 입력하세요."
   },
   "googleSignIn": {
