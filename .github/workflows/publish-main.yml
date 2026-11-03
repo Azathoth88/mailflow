@@ -1,0 +1,115 @@
+name: Publish main to GHCR
+
+# Every commit on main that passes CI becomes the `main` image, which the vibOS catalog
+# follows. vibOS finds a new build by its digest, so a merged PR shows up as an update
+# without a release. `sha-<commit>` keeps each build addressable for going back.
+#
+# Waiting for CI rather than building on the push keeps a red commit out of `main`: vibOS
+# applies floating tags on its own once a day.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-main
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # A run for an older commit that finishes after a newer push must not move `main`
+      # back. The newer commit's own run publishes it.
+      - name: Check that this is still the tip of main
+        id: rev
+        run: |
+          sha="$(git rev-parse HEAD)"
+          tip="$(git ls-remote origin refs/heads/main | cut -f1)"
+          echo "short=${sha::7}" >> "$GITHUB_OUTPUT"
+          if [ "$sha" = "$tip" ]; then echo "tip=true" >> "$GITHUB_OUTPUT"; else echo "tip=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Set up Docker Buildx
+        if: steps.rev.outputs.tip == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.rev.outputs.tip == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Backend ─────────────────────────────────────────────────────────────
+
+      - name: Extract metadata (backend)
+        if: steps.rev.outputs.tip == 'true'
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/mailflow-backend
+          tags: |
+            type=raw,value=main
+            type=raw,value=sha-${{ steps.rev.outputs.short }}
+
+      # amd64 only: vibOS runs on x86_64, and building arm64 under QEMU doubles the wait.
+      # APP_VERSION stays unset, so the version comes from package.json.
+      - name: Build and push backend
+        if: steps.rev.outputs.tip == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          provenance: false
+          build-args: |
+            BUILD_SHA=${{ github.event.workflow_run.head_sha || github.sha }}
+          cache-from: type=gha,scope=main-backend
+          cache-to: type=gha,mode=max,scope=main-backend
+
+      # ── Frontend ─────────────────────────────────────────────────────────────
+
+      - name: Extract metadata (frontend)
+        if: steps.rev.outputs.tip == 'true'
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/mailflow-frontend
+          tags: |
+            type=raw,value=main
+            type=raw,value=sha-${{ steps.rev.outputs.short }}
+
+      - name: Build and push frontend
+        if: steps.rev.outputs.tip == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          provenance: false
+          build-args: |
+            VITE_BUILD_SHA=${{ github.event.workflow_run.head_sha || github.sha }}
+          cache-from: type=gha,scope=main-frontend
+          cache-to: type=gha,mode=max,scope=main-frontend
