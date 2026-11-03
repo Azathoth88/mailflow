@@ -1,6 +1,7 @@
 import { isIPv4, isIPv6 } from 'net';
 import { promises as dnsPromises } from 'dns';
 import { domainToASCII } from 'url';
+import { isTrustedPrivateHost } from './trustedHosts.js';
 
 function ipv4ToLong(ip) {
   const parts = ip.split('.').map(Number);
@@ -81,7 +82,7 @@ function inetAtonIPv4(host) {
 // Synchronous check: literal IPs and reserved hostnames.
 export function validateHostLiteral(host, { allowPrivate = false } = {}) {
   if (!host || typeof host !== 'string') return null;
-  if (allowPrivate) return null;
+  if (allowPrivate || isTrustedPrivateHost(host)) return null;
   let h = host.trim();
   // dns.lookup converts a non-ASCII host to ASCII before getaddrinfo reads it, so
   // １２７.０.０.１ reaches 127.0.0.1 and ::１ reaches ::1. Check the converted form, and
@@ -106,6 +107,7 @@ export function validateHostLiteral(host, { allowPrivate = false } = {}) {
 // Async check: resolve A/AAAA records and reject any that are private/reserved.
 // Prevents SSRF via controlled hostnames that resolve to internal addresses.
 export async function validateHost(host, { allowPrivate = false } = {}) {
+  allowPrivate = allowPrivate || isTrustedPrivateHost(host);
   const literalErr = validateHostLiteral(host, { allowPrivate });
   if (literalErr) return literalErr;
 
@@ -184,6 +186,7 @@ async function resolveAddresses(bare) {
 }
 
 export async function resolveForConnection(hostname, { allowPrivate = false } = {}) {
+  allowPrivate = allowPrivate || isTrustedPrivateHost(hostname);
   const literalErr = validateHostLiteral(hostname, { allowPrivate });
   if (literalErr) throw new Error(literalErr);
 
