@@ -1,5 +1,6 @@
-import { query } from './db.js';
+import { query, withTransaction } from './db.js';
 import { decrypt, encrypt, isEncrypted } from './encryption.js';
+import { revokeProviderTokens, revokedTokensNote } from './apiTokens.js';
 
 const PROVISIONING_MODES = new Set(['disabled', 'login_existing_only', 'open']);
 const MASKED_SECRET = '••••••••';
@@ -94,7 +95,7 @@ export function envOidcConflict(provider, body = {}, env = process.env) {
 
 // Creates the environment's provider, or brings its row back to what the environment says.
 // Enabled and the settings OIDC_* does not cover stay as an admin left them.
-export async function syncEnvOidcProvider({ env = process.env, queryFn = query, log = console.log } = {}) {
+export async function syncEnvOidcProvider({ env = process.env, queryFn = query, transaction = withTransaction, log = console.log } = {}) {
   const managed = readEnvOidcProvider(env);
   if (!managed) return null;
   const { rows: [row] } = await queryFn('SELECT * FROM oidc_providers WHERE slug = $1', [managed.slug]);
@@ -115,11 +116,18 @@ export async function syncEnvOidcProvider({ env = process.env, queryFn = query, 
   ));
   if (!changed.length) return 'unchanged';
   const values = changed.map(field => (field === 'client_secret' ? encrypt(managed.client_secret) : managed[field]));
-  await queryFn(
-    `UPDATE oidc_providers SET ${changed.map((field, i) => `${field} = $${i + 2}`).join(', ')}, updated_at = NOW()
-     WHERE slug = $1`,
-    [managed.slug, ...values],
-  );
-  log(`SSO provider "${managed.slug}" updated from the environment: ${changed.join(', ')}`);
+  // Another issuer or client no longer vouches for the users this one did, so the API tokens
+  // confirmed through it go, as when an admin makes the change (#617). One transaction: with the
+  // row updated and the tokens kept, the next start finds the row matching and never takes them.
+  const identityChanged = changed.includes('issuer_url') || changed.includes('client_id');
+  const revoked = await transaction(async client => {
+    await client.query(
+      `UPDATE oidc_providers SET ${changed.map((field, i) => `${field} = $${i + 2}`).join(', ')}, updated_at = NOW()
+       WHERE slug = $1`,
+      [managed.slug, ...values],
+    );
+    return identityChanged ? revokeProviderTokens(client, row.id) : 0;
+  });
+  log(`SSO provider "${managed.slug}" updated from the environment: ${changed.join(', ')}${revokedTokensNote(revoked)}`);
   return 'updated';
 }

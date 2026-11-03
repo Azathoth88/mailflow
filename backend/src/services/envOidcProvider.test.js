@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('./db.js', () => ({ query: vi.fn() }));
+vi.mock('./db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('./encryption.js', () => ({
   encrypt: v => `enc:v1:${v}`,
   decrypt: v => v.replace(/^enc:v1:/, ''),
@@ -91,8 +91,13 @@ describe('envOidcConflict', () => {
 describe('syncEnvOidcProvider', () => {
   const run = (rows, env = ENV) => {
     const queryFn = vi.fn(async sql => (sql.startsWith('SELECT') ? { rows } : { rows: [] }));
-    return syncEnvOidcProvider({ env, queryFn, log: () => {} }).then(result => ({ result, queryFn }));
+    // What runs in the transaction, kept apart from queryFn so a test can see it ran there.
+    const tx = { query: vi.fn(async sql => ({ rows: [], rowCount: sql.startsWith('DELETE') ? 2 : 1 })) };
+    const transaction = vi.fn(async fn => fn(tx));
+    const log = vi.fn();
+    return syncEnvOidcProvider({ env, queryFn, transaction, log }).then(result => ({ result, queryFn, tx, log }));
   };
+  const statements = tx => tx.query.mock.calls.map(([sql]) => sql.trim().split(/\s+/).slice(0, 3).join(' '));
 
   it('does nothing when the environment describes no provider', async () => {
     const { result, queryFn } = await run([], {});
@@ -116,13 +121,35 @@ describe('syncEnvOidcProvider', () => {
   });
 
   it('updates only the fields the environment changed, and leaves enabled and the rest to the admin', async () => {
-    const { result, queryFn } = await run([ROW], {
+    const { result, tx } = await run([ROW], {
       ...ENV, OIDC_ISSUER_URL: 'https://sso.example.org/application/o/mailflow/', OIDC_CLIENT_SECRET: 'rotated',
     });
     expect(result).toBe('updated');
-    const [sql, params] = queryFn.mock.calls[1];
+    const [sql, params] = tx.query.mock.calls[0];
     expect(sql).toMatch(/SET issuer_url = \$2, client_secret = \$3, updated_at = NOW\(\)\s+WHERE slug = \$1/);
     expect(sql).not.toMatch(/enabled|allowed_domains/);
     expect(params).toEqual(['sso', 'https://sso.example.org/application/o/mailflow/', 'enc:v1:rotated']);
+  });
+
+  // The same rule the admin route follows (#617): a provider pointed at another issuer or client no
+  // longer vouches for the users it did, so the API tokens confirmed through it go with the change,
+  // in the transaction that makes it. A start that changed the row but kept them would leave the row
+  // matching the environment, so no later start would take them.
+  it.each([
+    ['issuer', { OIDC_ISSUER_URL: 'https://other-idp.example.com/' }],
+    ['client', { OIDC_CLIENT_ID: 'mailflow-2' }],
+  ])('takes the tokens confirmed through it along when the environment changes its %s', async (_what, change) => {
+    const { result, tx, log } = await run([ROW], { ...ENV, ...change });
+    expect(result).toBe('updated');
+    expect(statements(tx)).toEqual(['UPDATE oidc_providers SET', 'DELETE FROM api_tokens']);
+    expect(tx.query.mock.calls[1]).toEqual(['DELETE FROM api_tokens WHERE oidc_provider_id = $1', ['p1']]);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/updated from the environment: .*, and deleted 2 API tokens$/));
+  });
+
+  it('leaves the tokens through any other change, a rotated secret included', async () => {
+    const { result, tx, log } = await run([ROW], { ...ENV, OIDC_NAME: 'Company SSO', OIDC_CLIENT_SECRET: 'rotated' });
+    expect(result).toBe('updated');
+    expect(statements(tx)).toEqual(['UPDATE oidc_providers SET']);
+    expect(log).toHaveBeenCalledWith('SSO provider "sso" updated from the environment: name, client_secret');
   });
 });
