@@ -64,6 +64,29 @@ export function normalizeAiConfig(raw = {}) {
   };
 }
 
+// The OpenAI-compatible provider AI_API_* in the environment describes, or null when it describes
+// none. It applies while nothing is saved under Settings: a saved configuration wins, and removing
+// it there brings this one back. Throws on a description that cannot work, so a typo fails the
+// start instead of leaving AI quietly unconfigured.
+export function readEnvAiConfig(env = process.env) {
+  const baseUrl = normalizeBaseUrl(env.AI_API_BASE_URL);
+  const model = cleanString(env.AI_API_MODEL);
+  const apiKey = cleanString(env.AI_API_KEY);
+  if (!baseUrl && !model && !apiKey) return null;
+  if (!baseUrl || !model) throw new Error('AI_API_BASE_URL and AI_API_MODEL must be set together');
+  let parsed;
+  try { parsed = new URL(baseUrl); } catch {
+    throw new Error(`AI_API_BASE_URL is not a valid URL: "${baseUrl}"`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('AI_API_BASE_URL must use http or https');
+  }
+  return {
+    ...normalizeAiConfig({ provider: AI_PROVIDER_API_KEY, apiKeyConfig: { baseUrl, apiKey: apiKey || null, model } }),
+    source: 'environment',
+  };
+}
+
 function publicConfig(config) {
   if (!config) return null;
   return {
@@ -160,12 +183,17 @@ export function createAiProvider({
   getCodexStatusFn = getCodexStatus,
   streamCodexResponsesFn = streamCodexResponses,
   completeCodexTextFn = completeCodexText,
+  env = process.env,
 } = {}) {
-  async function loadAiConfig() {
+  async function loadStoredAiConfig() {
     const result = await queryFn("SELECT value FROM system_settings WHERE key = 'ai_config'");
     if (!result.rows.length) return null;
     const parsed = parseJson(result.rows[0].value);
     return parsed ? normalizeAiConfig(parsed) : null;
+  }
+
+  async function loadAiConfig() {
+    return (await loadStoredAiConfig()) ?? readEnvAiConfig(env);
   }
 
   // "Allow AI for new users" (#644) is stored apart from the provider configuration (see
@@ -191,9 +219,13 @@ export function createAiProvider({
     const existing = await loadAiConfig();
     const incomingApi = input.apiKeyConfig || {};
     const incomingKey = incomingApi.apiKey;
+    // The environment's key is plain text; saving the form it filled in keeps it, encrypted.
+    const existingKey = existing?.source === 'environment' && existing.apiKeyConfig.apiKey
+      ? encryptFn(existing.apiKeyConfig.apiKey)
+      : (existing?.apiKeyConfig.apiKey || null);
     const storedKey = typeof incomingKey === 'string' && incomingKey && incomingKey !== MASKED_API_KEY
       ? encryptFn(incomingKey)
-      : (existing?.apiKeyConfig.apiKey || null);
+      : existingKey;
     const config = normalizeAiConfig({
       ...input,
       apiKeyConfig: { ...incomingApi, apiKey: storedKey },
@@ -243,7 +275,9 @@ export function createAiProvider({
   }
 
   function apiKeyCredential(config) {
-    return config.apiKeyConfig.apiKey ? decryptFn(config.apiKeyConfig.apiKey) : null;
+    const { apiKey } = config.apiKeyConfig;
+    if (!apiKey) return null;
+    return config.source === 'environment' ? apiKey : decryptFn(apiKey);
   }
 
   function apiKeyHeaders(apiKey) {

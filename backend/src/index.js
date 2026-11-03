@@ -44,6 +44,9 @@ import { startCardavScheduler } from './services/carddavSync.js';
 import { start as startSpamScheduler } from './services/spamScheduler.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
+import { readEnvOidcProvider, syncEnvOidcProvider } from './services/envOidcProvider.js';
+import { readEnvAiConfig } from './services/aiProvider.js';
+import { closeRegistrationBeforeFirstUser } from './services/firstUserRegistration.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { closeWebSocketClients, createWebSocketServer, setupWebSocket } from './services/websocket.js';
@@ -97,6 +100,13 @@ if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length !== 64) {
 // ALLOWED_ORIGIN is null), and OIDC redirect URIs become malformed.
 if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
   console.error('FATAL: APP_URL must be set in production (e.g. https://mail.example.com). WebSocket connections and OIDC depend on it.');
+  process.exit(1);
+}
+try {
+  readEnvOidcProvider();
+  readEnvAiConfig();
+} catch (err) {
+  console.error(`FATAL: ${err.message}. Exiting.`);
   process.exit(1);
 }
 
@@ -268,6 +278,12 @@ await encryptExistingCredentials();
 
 // Load OAuth integration configs from DB into process.env
 await loadIntegrationConfigs();
+
+// Single sign-on provider described by OIDC_* in the environment, if any
+await syncEnvOidcProvider();
+
+// FIRST_USER_REGISTRATION=false: no first-user admin, so registration starts closed
+if (await closeRegistrationBeforeFirstUser()) console.log('Registration closed: FIRST_USER_REGISTRATION is false');
 
 // Start background snooze watcher — polls every 60 seconds to restore snoozed messages
 imapManager.startSnoozeWatcher();

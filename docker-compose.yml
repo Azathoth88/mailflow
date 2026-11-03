@@ -63,6 +63,7 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
+      TRUSTED_PRIVATE_HOSTS: ${TRUSTED_PRIVATE_HOSTS:-}
       # false stops offering MailFlow's built-in Microsoft app for personal accounts (#674).
       MS_BUILTIN_APP: ${MS_BUILTIN_APP:-}
       # Your own OAuth apps (#676). Values saved under Settings > Email providers take
@@ -74,6 +75,21 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      # A single sign-on provider set up from the environment (see .env.example).
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_NAME: ${OIDC_NAME:-}
+      OIDC_SLUG: ${OIDC_SLUG:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-}
+      OIDC_PROVISIONING_MODE: ${OIDC_PROVISIONING_MODE:-}
+      OIDC_ADMIN_GROUP_CLAIM: ${OIDC_ADMIN_GROUP_CLAIM:-}
+      OIDC_ADMIN_GROUP_VALUE: ${OIDC_ADMIN_GROUP_VALUE:-}
+      FIRST_USER_REGISTRATION: ${FIRST_USER_REGISTRATION:-}
+      # An AI provider from the environment, used while none is saved under Settings.
+      AI_API_BASE_URL: ${AI_API_BASE_URL:-}
+      AI_API_MODEL: ${AI_API_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
       # The image proxy's cache of fitted images: per user, at most this many MB, kept for a month.
       IMAGE_CACHE_DIR: /var/cache/mailflow/images
       IMAGE_CACHE_MAX_MB: ${IMAGE_CACHE_MAX_MB:-512}
