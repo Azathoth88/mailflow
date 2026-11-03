@@ -100,8 +100,10 @@ function isMicrosoftImapHost(host) {
 
 // prefill (add only): { email, preset } from the Add account chooser.
 // onMicrosoftSignIn (add only): switch to "Sign in with Microsoft" when an Outlook.com host is typed.
+// onHostedSignIn (add only): (signIn: 'google' | 'microsoft') => whether it switched to that sign-in,
+// for an address from the chooser whose domain's mail is hosted there (MX).
 // onSignInAgain (edit only): "Sign in again" for an account connected through a sign-in.
-function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, onGoogleSignIn, onSignInAgain }) {
+function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, onGoogleSignIn, onHostedSignIn, onSignInAgain }) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();
 
@@ -197,7 +199,7 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
   const autoconfigDomainRef = useRef(null);
   const formRef = useRef(form);
   formRef.current = form;
-  const lookupServers = (email) => {
+  const lookupServers = (email, { fromChooser = false } = {}) => {
     const domain = emailDomain(email);
     if (isEdit || !domain || autoconfigDomainRef.current === domain) return;
     if ((form.imap_host || '').trim() || (form.smtp_host || '').trim()) return;
@@ -212,6 +214,9 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
           setAutoconfig(null);
           return;
         }
+        // As the chooser does for @gmail.com: straight to the sign-in, when it is set up. Not
+        // for an address typed here, which would drop what else has been typed.
+        if (fromChooser && found.signIn && onHostedSignIn?.(found.signIn)) return;
         const { auth_user, ...servers } = found.settings;
         setForm(f => {
           const followsAddress = !f.auth_user || f.auth_user === f.email_address;
@@ -222,7 +227,7 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
       .catch(() => { if (autoconfigDomainRef.current === domain) setAutoconfig({ state: 'none', domain }); });
   };
   useEffect(() => {
-    if (prefill?.email && !prefill?.preset) lookupServers(prefill.email);
+    if (prefill?.email && !prefill?.preset) lookupServers(prefill.email, { fromChooser: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, for the address the chooser passed
 
   const handlePreset = (key) => {
@@ -343,7 +348,8 @@ function AccountForm({ initial, onSave, onCancel, prefill, onMicrosoftSignIn, on
             <div data-autoconfig={autoconfig.state} role="status" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.5 }}>
               {autoconfig.state === 'searching' ? t('accountForm.autoconfigSearching', { domain: autoconfig.domain })
                 : autoconfig.state === 'none' ? t('accountForm.autoconfigNone', { domain: autoconfig.domain })
-                : t(autoconfig.source === 'ispdb' ? 'accountForm.autoconfigFoundIspdb' : 'accountForm.autoconfigFoundDomain',
+                : t(autoconfig.source === 'mx' ? 'accountForm.autoconfigFoundMx'
+                  : autoconfig.source === 'ispdb' ? 'accountForm.autoconfigFoundIspdb' : 'accountForm.autoconfigFoundDomain',
                   { domain: autoconfig.domain, provider: autoconfig.provider || autoconfig.domain })}
             </div>
           )}
@@ -1070,7 +1076,12 @@ function AccountsTab() {
             </div>
             <AccountForm key={`${addStep.preset}:${addStep.email}`} prefill={addStep} onSave={handleAdd} onCancel={toChooser}
               onMicrosoftSignIn={(kind) => setAddStep({ step: 'microsoft', mode: kind === 'work' ? 'work' : 'personal' })}
-              onGoogleSignIn={() => setAddStep({ step: 'google' })} />
+              onGoogleSignIn={() => setAddStep({ step: 'google' })}
+              onHostedSignIn={(signIn) => {
+                if (signIn === 'google' && googleStatus?.signIn) { setAddStep({ step: 'google' }); return true; }
+                if (signIn === 'microsoft' && msStatus?.workAccounts) { setAddStep({ step: 'microsoft', mode: 'work' }); return true; }
+                return false;
+              }} />
           </>
         )}
       </div>

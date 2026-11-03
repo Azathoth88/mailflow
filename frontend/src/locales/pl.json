@@ -2366,6 +2366,7 @@
     "autoconfigSearching": "Wyszukiwanie ustawień serwera dla {{domain}}…",
     "autoconfigFoundDomain": "Uzupełniono ustawienia serwera {{provider}} opublikowane przez {{domain}}. Sprawdź je przed zapisaniem.",
     "autoconfigFoundIspdb": "Uzupełniono ustawienia serwera {{provider}} z publicznej bazy danych Thunderbirda. Sprawdź je przed zapisaniem.",
+    "autoconfigFoundMx": "Poczta domeny {{domain}} jest hostowana przez {{provider}}; ustawienia serwera zostały uzupełnione.",
     "autoconfigNone": "Nie znaleziono ustawień serwera dla {{domain}}. Wpisz je poniżej."
   },
   "googleSignIn": {

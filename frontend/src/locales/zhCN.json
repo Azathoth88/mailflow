@@ -2347,6 +2347,7 @@
     "autoconfigSearching": "正在查找 {{domain}} 的服务器设置…",
     "autoconfigFoundDomain": "已按 {{domain}} 发布的配置填入 {{provider}} 的服务器设置。保存前请检查。",
     "autoconfigFoundIspdb": "已从 Thunderbird 公共数据库填入 {{provider}} 的服务器设置。保存前请检查。",
+    "autoconfigFoundMx": "{{domain}} 的邮件托管在 {{provider}}，已填入其服务器设置。",
     "autoconfigNone": "未找到 {{domain}} 的服务器设置。请在下方手动填写。"
   },
   "googleSignIn": {

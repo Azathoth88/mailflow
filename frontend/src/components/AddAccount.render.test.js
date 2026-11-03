@@ -550,3 +550,60 @@ describe('server settings from autoconfig', () => {
     assert.deepEqual(lookups, ['maria@example.de']);
   });
 });
+
+// A custom domain whose mail is at Google Workspace or Microsoft 365 (MX): its own sign-in, like
+// @gmail.com and @outlook.com in the chooser, when the instance has that sign-in set up.
+describe('a domain hosted at Google or Microsoft', () => {
+  const GOOGLE_ON = { configured: true, signIn: true };
+  const hosted = (signIn) => async (email) => ({
+    found: true, source: 'mx', signIn, provider: signIn === 'google' ? 'Google Workspace' : 'Microsoft 365',
+    settings: signIn === 'google'
+      ? { imap_host: 'imap.gmail.com', imap_port: 993, auth_user: email, smtp_host: 'smtp.gmail.com', smtp_port: 587, smtp_tls: 'STARTTLS', smtp_auth_user: '' }
+      : { imap_host: 'outlook.office365.com', imap_port: 993, auth_user: email, smtp_host: 'smtp.office365.com', smtp_port: 587, smtp_tls: 'STARTTLS', smtp_auth_user: '' },
+  });
+  const input = (ph) => doc.querySelector(`input[placeholder="admin.accounts.${ph}"]`);
+  const status = () => doc.querySelector('[data-autoconfig]');
+
+  test('Google Workspace goes straight to Sign in with Google', async () => {
+    await openAdd('builtin', { google: GOOGLE_ON, autoconfig: hosted('google') });
+    await typeAndContinue('maria@company.example');
+    await until(() => !!byText('button', 'accountErrors.signInDialog.continueGoogle'));
+    assert.ok(byText('button', 'accountErrors.signInDialog.continueGoogle'));
+  });
+
+  test('Microsoft 365 goes straight to the work sign-in', async () => {
+    await openAdd('ownCommon', { autoconfig: hosted('microsoft') });
+    await typeAndContinue('maria@company.example');
+    await until(() => text().includes('msSignIn.titleWork'));
+    assert.ok(text().includes('msSignIn.titleWork'));
+  });
+
+  test('without Google sign-in, the form with Gmail\'s servers and where to make an app password', async () => {
+    await openAdd('builtin', { autoconfig: hosted('google') });
+    await typeAndContinue('maria@company.example');
+    await until(() => status()?.dataset.autoconfig === 'found');
+    assert.equal(input('imapHostPh').value, 'imap.gmail.com');
+    assert.ok(status().textContent.includes('accountForm.autoconfigFoundMx'));
+    await until(() => !!doc.querySelector('[data-gmail-note]'));
+    assert.ok(doc.querySelector('[data-gmail-note]').textContent.includes('googleSignIn.appPasswordNote'));
+  });
+
+  test('without work sign-in, the form with the Microsoft note', async () => {
+    await openAdd('builtin', { autoconfig: hosted('microsoft') });
+    await typeAndContinue('maria@company.example');
+    await until(() => status()?.dataset.autoconfig === 'found');
+    assert.equal(input('imapHostPh').value, 'outlook.office365.com');
+    assert.ok(status().textContent.includes('accountForm.autoconfigFoundMx'));
+    assert.ok(text().includes('admin.accounts.microsoftImapUnsupported'));
+  });
+
+  test('an address typed into the form stays in the form, with the sign-in offered there', async () => {
+    await openAdd('builtin', { google: GOOGLE_ON, autoconfig: hosted('google') });
+    await click(tile('other'));
+    await setValue(input('emailPh'), 'maria@company.example');
+    await act(async () => { input('emailPh').dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true })); });
+    await until(() => !!doc.querySelector('[data-gmail-note]')?.textContent.includes('googleSignIn.formNote'));
+    assert.equal(input('imapHostPh').value, 'imap.gmail.com');
+    assert.ok(byText('button', 'googleSignIn.title'));
+  });
+});
