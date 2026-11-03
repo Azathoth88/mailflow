@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('./safeFetch.js', () => ({ safeFetch: vi.fn() }));
 
 const { safeFetch } = await import('./safeFetch.js');
-const { autoconfigDomain, autoconfigUrls, parseAutoconfig, lookupAutoconfig, mxHosting } = await import('./mailAutoconfig.js');
+const { autoconfigDomain, autoconfigUrls, parseAutoconfig, lookupAutoconfig, mxHosting, srvSettings, mxProviderDomains } = await import('./mailAutoconfig.js');
 
 const server = (tag, type, { host, port, socket, username = '%EMAILADDRESS%', auth = ['password-cleartext'] }) =>
   `<${tag} type="${type}"><hostname>${host}</hostname><port>${port}</port><socketType>${socket}</socketType>` +
@@ -19,6 +19,10 @@ const config = (...servers) =>
 
 const EMAIL = 'max@example.de';
 const noMx = async () => { throw Object.assign(new Error('queryMx ENODATA'), { code: 'ENODATA' }); };
+const noSrv = async () => { throw Object.assign(new Error('querySrv ENOTFOUND'), { code: 'ENOTFOUND' }); };
+const noProbe = vi.fn(async () => ({ imap: null, smtp: null }));
+// No DNS, no probe: every lookup test states which sources answer.
+const OFFLINE = { resolveMx: noMx, resolveSrv: noSrv, probe: noProbe };
 const mx = (...exchanges) => async () => exchanges.map(([exchange, priority]) => ({ exchange, priority }));
 
 describe('autoconfigDomain', () => {
@@ -119,14 +123,14 @@ describe('lookupAutoconfig', () => {
 
   it('goes through safeFetch by default', async () => {
     safeFetch.mockImplementation(answers({ 'https://autoconfig.example.de/': GOOD }));
-    expect((await lookupAutoconfig(EMAIL, { resolveMx: noMx })).source).toBe('domain');
+    expect((await lookupAutoconfig(EMAIL, { ...OFFLINE })).source).toBe('domain');
     expect(safeFetch).toHaveBeenCalledTimes(3);
     for (const [url] of safeFetch.mock.calls) expect(url.startsWith('https://')).toBe(true);
   });
 
   it('prefers the domain\'s own config over the database', async () => {
     const fetchImpl = answers({ 'https://example.de/.well-known/': GOOD, 'https://autoconfig.thunderbird.net/': ISPDB });
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: noMx })).toMatchObject({ source: 'domain', settings: { imap_host: 'imap.example.de' } });
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, ...OFFLINE })).toMatchObject({ source: 'domain', settings: { imap_host: 'imap.example.de' } });
   });
 
   it('falls back to the database when the domain has nothing usable', async () => {
@@ -135,19 +139,19 @@ describe('lookupAutoconfig', () => {
       'https://example.de/.well-known/': '<html>Welcome</html>',
       'https://autoconfig.thunderbird.net/': ISPDB,
     });
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: noMx })).toMatchObject({ source: 'ispdb', settings: { imap_host: 'imap.ispdb.example' } });
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, ...OFFLINE })).toMatchObject({ source: 'ispdb', settings: { imap_host: 'imap.ispdb.example' } });
   });
 
   it('refuses a response larger than an autoconfig file can be', async () => {
     const fetchImpl = answers({ 'https://autoconfig.thunderbird.net/': GOOD + ' '.repeat(300 * 1024) });
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: noMx })).toBeNull();
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, ...OFFLINE })).toBeNull();
   });
 
   it('gives null when nothing is found, and asks nobody for an address that is not one', async () => {
     const fetchImpl = answers({});
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: noMx })).toBeNull();
+    expect(await lookupAutoconfig(EMAIL, { fetchImpl, ...OFFLINE })).toBeNull();
     fetchImpl.mockClear();
-    expect(await lookupAutoconfig('a@10.0.0.5', { fetchImpl, resolveMx: noMx })).toBeNull();
+    expect(await lookupAutoconfig('a@10.0.0.5', { fetchImpl, ...OFFLINE })).toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
@@ -182,7 +186,7 @@ describe('lookupAutoconfig with MX', () => {
   const none = vi.fn(async () => new Response('Not found', { status: 404 }));
 
   it('falls back to the MX host when no config is published', async () => {
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl: none, resolveMx: mx(['aspmx.l.google.com', 1]) })).toMatchObject({
+    expect(await lookupAutoconfig(EMAIL, { ...OFFLINE, fetchImpl: none, resolveMx: mx(['aspmx.l.google.com', 1]) })).toMatchObject({
       source: 'mx', signIn: 'google', provider: 'Google Workspace', settings: { imap_host: 'imap.gmail.com' },
     });
   });
@@ -191,6 +195,99 @@ describe('lookupAutoconfig with MX', () => {
     const fetchImpl = vi.fn(async (url) => url.startsWith('https://autoconfig.example.de/')
       ? new Response(config(imap({ host: 'imap.example.de', port: 993, socket: 'SSL' })), { status: 200 })
       : new Response('Not found', { status: 404 }));
-    expect(await lookupAutoconfig(EMAIL, { fetchImpl, resolveMx: mx(['aspmx.l.google.com', 1]) })).toMatchObject({ source: 'domain' });
+    expect(await lookupAutoconfig(EMAIL, { ...OFFLINE, fetchImpl, resolveMx: mx(['aspmx.l.google.com', 1]) })).toMatchObject({ source: 'domain' });
+  });
+});
+
+describe('srvSettings (RFC 6186)', () => {
+  const srv = (byName) => async (name) => {
+    if (!byName[name]) throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
+    return byName[name].map(([n, port, priority = 0, weight = 0]) => ({ name: n, port, priority, weight }));
+  };
+
+  it('takes implicit TLS before STARTTLS, by priority', async () => {
+    const resolveSrv = srv({
+      '_imaps._tcp.example.de': [['imap2.example.de.', 993, 20], ['imap.example.de.', 993, 10]],
+      '_imap._tcp.example.de': [['imap.example.de.', 143]],
+      '_submission._tcp.example.de': [['smtp.example.de.', 587]],
+    });
+    expect(await srvSettings('example.de', EMAIL, { resolveSrv })).toEqual({
+      provider: null,
+      settings: { imap_host: 'imap.example.de', imap_port: 993, auth_user: EMAIL, smtp_host: 'smtp.example.de', smtp_port: 587, smtp_tls: 'STARTTLS', smtp_auth_user: '' },
+    });
+  });
+
+  it('skips a service marked as not offered (".")', async () => {
+    const resolveSrv = srv({ '_imaps._tcp.example.de': [['.', 0]], '_imap._tcp.example.de': [['imap.example.de', 143]] });
+    expect((await srvSettings('example.de', EMAIL, { resolveSrv })).settings).toMatchObject({ imap_host: 'imap.example.de', imap_port: 143 });
+  });
+
+  it('gives nothing without an IMAP record', async () => {
+    expect(await srvSettings('example.de', EMAIL, { resolveSrv: srv({ '_submission._tcp.example.de': [['smtp.example.de', 587]] }) })).toBeNull();
+  });
+});
+
+describe('mxProviderDomains', () => {
+  it.each([
+    [['mx2ff3.netcup.net'], ['netcup.net']],
+    [['aspmx.l.google.com', 'alt1.aspmx.l.google.com'], ['l.google.com', 'google.com', 'aspmx.l.google.com']],
+    [['mx.example.de'], []],
+    [['mail.provider.example', 'mx1.provider.example', 'mx2.provider.example', 'mx3.other.example'], ['provider.example']],
+  ])('%j -> %j', (hosts, domains) => {
+    expect(mxProviderDomains(hosts, 'example.de')).toEqual(domains);
+  });
+});
+
+// webmaster@tanngrisnir.de: autoconfig.<domain> is a CNAME to a host that does not answer,
+// Thunderbird's database knows neither the domain nor the provider, and the server is still there.
+describe('lookupAutoconfig: SRV, the provider behind the MX, and the probe', () => {
+  const none = vi.fn(async () => new Response('Not found', { status: 404 }));
+  const NETCUP = config(imap({ host: 'mx2ff3.netcup.net', port: 993, socket: 'SSL' }), smtp({ host: 'mx2ff3.netcup.net', port: 465, socket: 'SSL' }));
+
+  it('uses SRV records when the domain publishes no config', async () => {
+    const resolveSrv = async (name) => {
+      if (name === '_imaps._tcp.example.de') return [{ name: 'imap.example.de', port: 993, priority: 0, weight: 0 }];
+      throw new Error('ENOTFOUND');
+    };
+    expect(await lookupAutoconfig(EMAIL, { ...OFFLINE, fetchImpl: none, resolveSrv })).toMatchObject({ source: 'srv', settings: { imap_host: 'imap.example.de' } });
+  });
+
+  it('asks Thunderbird\'s database for the provider behind the MX, with only that provider\'s domain', async () => {
+    const fetchImpl = vi.fn(async (url) => url === 'https://autoconfig.thunderbird.net/v1.1/netcup.net'
+      ? new Response(NETCUP.replace('Example Mail', 'netcup'), { status: 200 })
+      : new Response('Not found', { status: 404 }));
+    const found = await lookupAutoconfig('webmaster@tanngrisnir.de', { ...OFFLINE, fetchImpl, resolveMx: mx(['mx2ff3.netcup.net', 10]) });
+    expect(found).toMatchObject({ source: 'mx', provider: 'netcup', settings: { imap_host: 'mx2ff3.netcup.net', smtp_port: 465 } });
+    const ispdbUrls = fetchImpl.mock.calls.map(([url]) => url).filter(url => url.startsWith('https://autoconfig.thunderbird.net/'));
+    expect(ispdbUrls).toEqual(['https://autoconfig.thunderbird.net/v1.1/tanngrisnir.de', 'https://autoconfig.thunderbird.net/v1.1/netcup.net']);
+  });
+
+  it('probes last, with the MX hosts and the instance\'s private-host policy', async () => {
+    const probe = vi.fn(async () => ({
+      imap: { host: 'mx2ff3.netcup.net', port: 993, socket: 'SSL' },
+      smtp: { host: 'mx2ff3.netcup.net', port: 587, socket: 'STARTTLS' },
+    }));
+    const found = await lookupAutoconfig('webmaster@tanngrisnir.de', {
+      ...OFFLINE, fetchImpl: none, resolveMx: mx(['mx2ff3.netcup.net', 10]), probe, allowPrivate: false,
+    });
+    expect(probe).toHaveBeenCalledWith('tanngrisnir.de', ['mx2ff3.netcup.net'], { allowPrivate: false });
+    expect(found).toEqual({
+      source: 'probe', provider: null,
+      settings: { imap_host: 'mx2ff3.netcup.net', imap_port: 993, auth_user: 'webmaster@tanngrisnir.de', smtp_host: 'mx2ff3.netcup.net', smtp_port: 587, smtp_tls: 'STARTTLS', smtp_auth_user: '' },
+    });
+  });
+
+  it('does not probe when another source knows the domain', async () => {
+    const probe = vi.fn();
+    const fetchImpl = vi.fn(async (url) => url.startsWith('https://autoconfig.example.de/')
+      ? new Response(config(imap({ host: 'imap.example.de', port: 993, socket: 'SSL' })), { status: 200 })
+      : new Response('Not found', { status: 404 }));
+    await lookupAutoconfig(EMAIL, { ...OFFLINE, fetchImpl, probe });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('gives nothing when the probe finds no IMAP server', async () => {
+    const probe = vi.fn(async () => ({ imap: null, smtp: { host: 'smtp.example.de', port: 587, socket: 'STARTTLS' } }));
+    expect(await lookupAutoconfig(EMAIL, { ...OFFLINE, fetchImpl: none, probe })).toBeNull();
   });
 });
