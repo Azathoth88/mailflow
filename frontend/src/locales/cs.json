@@ -2367,6 +2367,7 @@
     "autoconfigFoundDomain": "Nastavení serveru {{provider}} bylo vyplněno podle údajů zveřejněných doménou {{domain}}. Před uložením je zkontrolujte.",
     "autoconfigFoundIspdb": "Nastavení serveru {{provider}} bylo vyplněno z veřejné databáze Thunderbirdu. Před uložením je zkontrolujte.",
     "autoconfigFoundMx": "Pošta domény {{domain}} je hostována u {{provider}}; nastavení serveru bylo vyplněno.",
+    "autoconfigFoundProbe": "Nastavení serveru bylo nalezeno vyzkoušením obvyklých názvů serverů pro {{domain}}. Před uložením je zkontrolujte.",
     "autoconfigNone": "Pro {{domain}} nebylo nalezeno žádné nastavení serveru. Zadejte ho níže."
   },
   "googleSignIn": {

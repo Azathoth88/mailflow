@@ -1,8 +1,15 @@
-// Finds IMAP and SMTP settings for an address, in Thunderbird's autoconfig format: the
-// domain's own config (autoconfig.<domain>, then /.well-known/autoconfig), then Thunderbird's
-// public database; failing those, the domain's MX records, which tell a custom domain at Google
-// Workspace or Microsoft 365 apart. The result only fills in the add-account form; the user still confirms it
-// and POST /accounts validates host and port as for anything typed by hand.
+// Finds IMAP and SMTP settings for an address. Sources, in order of precedence:
+//  1. the domain's own config (autoconfig.<domain>, then /.well-known/autoconfig)
+//  2. its SRV records (RFC 6186)
+//  3. Thunderbird's public database for the domain
+//  4. its MX: Google Workspace and Microsoft 365, whose own sign-in the form offers, then
+//     Thunderbird's entry for the provider behind the MX (one provider hosts many domains)
+//  5. a port probe of the usual server names (mailServerProbe.js)
+// 1-4 start together, so a source that does not answer costs its timeout once; the first usable
+// one in that order wins. The probe runs only when none of them knows the domain.
+//
+// The result only fills in the add-account form; the user still confirms it and POST /accounts
+// validates host and port as for anything typed by hand.
 //
 // HTTPS only, through safeFetch: the answer decides where the mailbox password goes, so a
 // plaintext fetch would let anyone on the path substitute their own server. The domain comes
@@ -12,8 +19,9 @@ import { domainToASCII } from 'node:url';
 import { Resolver } from 'node:dns/promises';
 import { XMLParser } from 'fast-xml-parser';
 import { safeFetch } from './safeFetch.js';
+import { probeMailServers } from './mailServerProbe.js';
 
-const TIMEOUT_MS = 6000;
+const TIMEOUT_MS = 4000;
 // Real configs are a few KB.
 const MAX_BYTES = 256 * 1024;
 const ISPDB = 'https://autoconfig.thunderbird.net/v1.1/';
@@ -22,6 +30,7 @@ const IMAP_PORTS = new Set([143, 993]);
 const SMTP_PORTS = new Set([465, 587]);
 
 const LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
+const MAX_MX_PROVIDER_DOMAINS = 4;
 
 // The domain of an address as an ASCII DNS name, or null. It is put into URLs, so anything that
 // is not a plain name (IP literals, ports, paths) is refused here.
@@ -103,19 +112,43 @@ export function parseAutoconfig(xml, email, { allowNonstandardPorts = false } = 
     .map(s => usable(s, email, { kind: 'smtp', allowNonstandardPorts })).find(Boolean);
   return {
     provider: typeof provider.displayName === 'string' ? provider.displayName.trim() : null,
-    settings: {
-      imap_host: imap.host,
-      imap_port: imap.port,
-      auth_user: imap.username,
-      ...(smtp ? {
-        smtp_host: smtp.host,
-        smtp_port: smtp.port,
-        smtp_tls: smtp.socket,
-        // Blank means "same login as IMAP" in the form.
-        smtp_auth_user: smtp.username !== imap.username ? smtp.username : '',
-      } : {}),
-    },
+    settings: settingsFrom(imap, smtp),
   };
+}
+
+function settingsFrom(imap, smtp) {
+  return {
+    imap_host: imap.host,
+    imap_port: imap.port,
+    auth_user: imap.username,
+    ...(smtp ? {
+      smtp_host: smtp.host,
+      smtp_port: smtp.port,
+      smtp_tls: smtp.socket,
+      // Blank means "same login as IMAP" in the form.
+      smtp_auth_user: smtp.username !== imap.username ? smtp.username : '',
+    } : {}),
+  };
+}
+
+// RFC 6186. Implicit TLS before STARTTLS; a target of "." means the service is not offered,
+// which the DNS-name check drops.
+const SRV_SERVICES = [
+  ['imap', '_imaps', 'SSL'], ['imap', '_imap', 'STARTTLS'],
+  ['smtp', '_submissions', 'SSL'], ['smtp', '_submission', 'STARTTLS'],
+];
+
+export async function srvSettings(domain, email, { resolveSrv, allowNonstandardPorts = false }) {
+  const records = (await Promise.all(SRV_SERVICES.map(async ([kind, service, socketType]) => {
+    const list = await resolveSrv(`${service}._tcp.${domain}`).catch(() => []);
+    return [...(list || [])]
+      .sort((a, b) => (a.priority - b.priority) || (b.weight - a.weight))
+      .map(r => ({ kind, hostname: String(r.name || '').toLowerCase().replace(/\.$/, ''), port: r.port, socketType }));
+  }))).flat();
+  const pick = (kind) => records.filter(r => r.kind === kind)
+    .map(r => usable(r, email, { kind, allowNonstandardPorts })).find(Boolean);
+  const imap = pick('imap');
+  return imap ? { provider: null, settings: settingsFrom(imap, pick('smtp')) } : null;
 }
 
 async function readCapped(res) {
@@ -157,13 +190,20 @@ const MX_HOSTS = [
 
 const resolver = new Resolver({ timeout: 3000, tries: 2 });
 const systemResolveMx = (domain) => resolver.resolveMx(domain);
+const systemResolveSrv = (name) => resolver.resolveSrv(name);
 
-// { signIn, provider, settings } for the host of the domain's preferred MX, or null.
-export async function mxHosting(domain, email, resolveMx = systemResolveMx) {
+// The domain's MX hosts, preferred first.
+async function mxHostnames(domain, resolveMx) {
   let records;
-  try { records = await resolveMx(domain); } catch { return null; }
-  const preferred = [...(records || [])].sort((a, b) => a.priority - b.priority)[0];
-  const exchange = String(preferred?.exchange || '').toLowerCase().replace(/\.$/, '');
+  try { records = await resolveMx(domain); } catch { return []; }
+  return [...(records || [])]
+    .sort((a, b) => a.priority - b.priority)
+    .map(r => String(r.exchange || '').toLowerCase().replace(/\.$/, ''))
+    .filter(isDnsName);
+}
+
+function knownHosting(hosts, email) {
+  const exchange = hosts[0] || '';
   const host = MX_HOSTS.find(h => h.suffixes.some(s => exchange.endsWith(s)));
   if (!host) return null;
   return {
@@ -173,20 +213,63 @@ export async function mxHosting(domain, email, resolveMx = systemResolveMx) {
   };
 }
 
-// { source: 'domain' | 'ispdb' | 'mx', provider, settings, signIn? } or null. The sources are
-// asked at once; the first in the order above that yields usable settings wins.
-export async function lookupAutoconfig(email, { allowNonstandardPorts = false, fetchImpl = safeFetch, resolveMx } = {}) {
+// { signIn, provider, settings } for the host of the domain's preferred MX, or null.
+export async function mxHosting(domain, email, resolveMx = systemResolveMx) {
+  return knownHosting(await mxHostnames(domain, resolveMx), email);
+}
+
+// The provider domains to look up in Thunderbird's database for MX hosts: the host without its
+// first label, and its last two labels (mx2ff3.netcup.net -> netcup.net). The address' own
+// domain has been asked already.
+export function mxProviderDomains(hosts, domain) {
+  const domains = [];
+  for (const host of hosts.slice(0, 3)) {
+    const labels = host.split('.');
+    if (labels.length > 2) domains.push(labels.slice(1).join('.'));
+    domains.push(labels.slice(-2).join('.'));
+  }
+  return [...new Set(domains)].filter(d => d !== domain && isDnsName(d)).slice(0, MAX_MX_PROVIDER_DOMAINS);
+}
+
+async function firstOf(pending) {
+  for (const p of pending) {
+    const found = await p;
+    if (found) return found;
+  }
+  return null;
+}
+
+// { source: 'domain' | 'srv' | 'ispdb' | 'mx' | 'probe', provider, settings, signIn? } or null.
+export async function lookupAutoconfig(email, {
+  allowNonstandardPorts = false,
+  allowPrivate = false,
+  fetchImpl = safeFetch,
+  resolveMx = systemResolveMx,
+  resolveSrv = systemResolveSrv,
+  probe = probeMailServers,
+} = {}) {
   const domain = autoconfigDomain(email);
   if (!domain) return null;
-  const candidates = autoconfigUrls(email, domain);
-  const [results, mx] = await Promise.all([
-    Promise.allSettled(candidates.map(c => fetchConfig(c.url, fetchImpl))),
-    mxHosting(domain, email, resolveMx),
-  ]);
-  for (const [i, r] of results.entries()) {
-    if (r.status !== 'fulfilled') continue;
-    const parsed = parseAutoconfig(r.value, email, { allowNonstandardPorts });
-    if (parsed) return { source: candidates[i].source, ...parsed };
+  const options = { allowNonstandardPorts };
+  const fromUrl = (url) => fetchConfig(url, fetchImpl).then(xml => parseAutoconfig(xml, email, options), () => null);
+  const [own, wellKnown, ispdb] = autoconfigUrls(email, domain);
+  const hosts = mxHostnames(domain, resolveMx);
+  const sources = [
+    ['domain', fromUrl(own.url)],
+    ['domain', fromUrl(wellKnown.url)],
+    ['srv', srvSettings(domain, email, { resolveSrv, ...options }).catch(() => null)],
+    ['ispdb', fromUrl(ispdb.url)],
+    ['mx', hosts.then(h => knownHosting(h, email))],
+    ['mx', hosts.then(h => firstOf(mxProviderDomains(h, domain).map(via => fromUrl(`${ISPDB}${via}`))))],
+  ];
+  for (const [source, pending] of sources) {
+    const found = await pending;
+    if (found) return { source, ...found };
   }
-  return mx ? { source: 'mx', ...mx } : null;
+
+  const probed = await probe(domain, await hosts, { allowPrivate }).catch(() => null);
+  const asServer = (found, kind) => found
+    && usable({ hostname: found.host, port: found.port, socketType: found.socket }, email, { kind, ...options });
+  const imap = asServer(probed?.imap, 'imap');
+  return imap ? { source: 'probe', provider: null, settings: settingsFrom(imap, asServer(probed?.smtp, 'smtp') || null) } : null;
 }
